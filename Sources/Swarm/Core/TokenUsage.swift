@@ -18,6 +18,12 @@ public struct TokenUsage: Sendable, Equatable, Codable {
     /// Number of tokens in the output/response.
     public let outputTokens: Int
 
+    /// Input tokens served from the provider's prompt cache (subset of inputTokens).
+    public let cachedTokens: Int?
+
+    /// Output tokens used for internal reasoning (subset of outputTokens; e.g. o-series models).
+    public let reasoningTokens: Int?
+
     /// Total tokens used (input + output).
     public var totalTokens: Int {
         inputTokens + outputTokens
@@ -27,9 +33,18 @@ public struct TokenUsage: Sendable, Equatable, Codable {
     /// - Parameters:
     ///   - inputTokens: Input token count.
     ///   - outputTokens: Output token count.
-    public init(inputTokens: Int, outputTokens: Int) {
+    ///   - cachedTokens: Cached input tokens (optional).
+    ///   - reasoningTokens: Reasoning output tokens (optional).
+    public init(
+        inputTokens: Int,
+        outputTokens: Int,
+        cachedTokens: Int? = nil,
+        reasoningTokens: Int? = nil
+    ) {
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.cachedTokens = cachedTokens
+        self.reasoningTokens = reasoningTokens
     }
 }
 

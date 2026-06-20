@@ -78,6 +78,49 @@ struct WaxMemoryTests {
         #expect(await reopened.count == 1)
         #expect((await reopened.allMessages()).map(\.id) == [message.id])
     }
+
+    @Test("Memory.wax static factory methods")
+    func memoryWaxStaticFactoryMethods() async throws {
+        let url1 = try makeTemporaryWaxURL()
+        let url2 = try makeTemporaryWaxURL()
+        defer {
+            try? FileManager.default.removeItem(at: url1)
+            try? FileManager.default.removeItem(at: url2)
+        }
+
+        // Test basic creation using explicit type
+        let memory1: any Memory = try await WaxMemory.wax(url: url1)
+        #expect(memory1 is WaxMemory)
+ 
+        // Test creation with Swarm embedding provider
+        let embedder = MockEmbeddingProvider()
+        let memory2: any Memory = try await WaxMemory.wax(url: url2, embeddingProvider: embedder)
+        #expect(memory2 is WaxMemory)
+ 
+        // Test implicit member lookup type inference
+        let _: WaxMemory = try await .wax(url: url1)
+    }
+
+    @Test("Agent can use WaxMemory seamlessly")
+    func agentCanUseWaxMemorySeamlessly() async throws {
+        let url = try makeTemporaryWaxURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Test implicit member lookup in generic context
+        let agent = try await Agent()
+            .withMemory(.wax(url: url))
+
+        #expect(agent.memory is WaxMemory)
+
+        // Verify basic interaction through the agent (adding/retrieving via memory)
+        if let memory = agent.memory as? WaxMemory {
+            await memory.add(MemoryMessage.user("Hello Wax"))
+            let context = await memory.context(for: "Hello", tokenLimit: 100)
+            #expect(context.contains("Hello Wax"))
+        } else {
+            Issue.record("Agent memory should be WaxMemory")
+        }
+    }
 }
 
 private func makeTemporaryWaxURL() throws -> URL {

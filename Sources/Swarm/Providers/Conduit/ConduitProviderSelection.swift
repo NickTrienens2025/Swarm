@@ -266,6 +266,10 @@ public enum ConduitProviderSelection: Sendable, InferenceProvider {
         model: String,
         settings: OllamaSettings
     ) -> ConduitProviderSelection {
+        // NOTE: requestTimeout cannot currently be threaded through because
+        // OpenAIProvider.init(configuration:) and OpenAIConfiguration.timeout()
+        // are internal to ConduitAdvanced. To apply settings.requestTimeout,
+        // Conduit would need to expose a public timeout parameter on the Ollama init.
         let provider = OpenAIProvider(
             ollamaHost: settings.host,
             port: settings.port,

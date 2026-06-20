@@ -70,6 +70,20 @@ public actor WaxMemory: Memory, MemoryPromptDescriptor, MemorySessionLifecycle {
         self.memoryPromptGuidance = configuration.promptGuidance
     }
 
+    /// Creates a Wax-backed memory store using a Swarm embedding provider.
+    /// - Parameters:
+    ///   - url: Location of the Wax database.
+    ///   - embeddingProvider: Swarm embedding provider for vector search.
+    ///   - configuration: Wax memory configuration.
+    public init(
+        url: URL,
+        embeddingProvider: any EmbeddingProvider,
+        configuration: Configuration = .default
+    ) async throws {
+        let adapter = WaxEmbeddingProviderAdapter(embeddingProvider)
+        try await self.init(url: url, embedder: adapter, configuration: configuration)
+    }
+
     public func add(_ message: MemoryMessage) async {
         guard persistedMessageIDs.contains(message.id) == false else {
             return
@@ -296,5 +310,39 @@ public extension WaxMemory {
         }
 
         return NSClassFromString("XCTestCase") != nil
+    }
+}
+
+// MARK: - Memory Factory Extension for Wax
+
+extension Memory where Self == WaxMemory {
+    /// Creates a ``WaxMemory`` backed by a Wax database.
+    ///
+    /// - Parameters:
+    ///   - url: Location of the Wax database (default: ``WaxMemory/defaultStoreURL``).
+    ///   - embedder: Optional Wax embedding provider for vector search.
+    ///   - configuration: Wax memory configuration (default: ``WaxMemory/Configuration/default``).
+    /// - Returns: A ``WaxMemory`` instance.
+    public static func wax(
+        url: URL = WaxMemory.defaultStoreURL,
+        embedder: (any WaxVectorSearch.EmbeddingProvider)? = nil,
+        configuration: WaxMemory.Configuration = .default
+    ) async throws -> WaxMemory {
+        try await WaxMemory(url: url, embedder: embedder, configuration: configuration)
+    }
+
+    /// Creates a ``WaxMemory`` backed by a Wax database using a Swarm embedding provider.
+    ///
+    /// - Parameters:
+    ///   - url: Location of the Wax database (default: ``WaxMemory/defaultStoreURL``).
+    ///   - embeddingProvider: Swarm embedding provider for vector search.
+    ///   - configuration: Wax memory configuration (default: ``WaxMemory/Configuration/default``).
+    /// - Returns: A ``WaxMemory`` instance.
+    public static func wax(
+        url: URL = WaxMemory.defaultStoreURL,
+        embeddingProvider: any EmbeddingProvider,
+        configuration: WaxMemory.Configuration = .default
+    ) async throws -> WaxMemory {
+        try await WaxMemory(url: url, embeddingProvider: embeddingProvider, configuration: configuration)
     }
 }

@@ -23,6 +23,8 @@ public struct OllamaSettings: Sendable, Hashable {
     public var lowVRAM: Bool
     public var numCtx: Int?
     public var healthCheck: Bool
+    /// HTTP request timeout in seconds. Defaults to 300 to accommodate slow local models.
+    public var requestTimeout: TimeInterval
 
     public init(
         host: String = "localhost",
@@ -32,7 +34,8 @@ public struct OllamaSettings: Sendable, Hashable {
         numGPU: Int? = nil,
         lowVRAM: Bool = false,
         numCtx: Int? = nil,
-        healthCheck: Bool = true
+        healthCheck: Bool = true,
+        requestTimeout: TimeInterval = 300
     ) {
         self.host = host
         self.port = port
@@ -42,6 +45,7 @@ public struct OllamaSettings: Sendable, Hashable {
         self.lowVRAM = lowVRAM
         self.numCtx = numCtx
         self.healthCheck = healthCheck
+        self.requestTimeout = requestTimeout
     }
 
     public static let `default` = OllamaSettings()
