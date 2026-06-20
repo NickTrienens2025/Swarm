@@ -33,19 +33,19 @@ import Foundation
 ///
 /// ```swift
 /// // Simple conversation history (most common)
-/// let memory = Memory.conversation(maxMessages: 50)
+/// let memory: ConversationMemory = .conversation(maxMessages: 50)
 ///
 /// // Semantic search with embeddings (for RAG)
-/// let vectorMemory = Memory.vector(
+/// let vectorMemory: VectorMemory = .vector(
 ///     embeddingProvider: myProvider,
 ///     similarityThreshold: 0.75
 /// )
 ///
 /// // Token-bounded sliding window
-/// let slidingMemory = Memory.slidingWindow(maxTokens: 8000)
+/// let slidingMemory: SlidingWindowMemory = .slidingWindow(maxTokens: 8000)
 ///
 /// // With automatic summarization
-/// let summaryMemory = Memory.summary(
+/// let summaryMemory: SummaryMemory = .summary(
 ///     configuration: .init(recentMessageCount: 30)
 /// )
 /// ```
@@ -55,12 +55,8 @@ import Foundation
 /// Memory is attached to agents using the fluent API:
 ///
 /// ```swift
-/// let agent = Agent(
-///     id: "assistant",
-///     model: gpt4,
-///     instructions: "You are a helpful assistant."
-/// )
-/// .withMemory(.conversation(maxMessages: 100))
+/// let agent = try Agent("You are a helpful assistant.")
+///     .withMemory(.conversation(maxMessages: 100))
 /// ```
 ///
 /// ## Implementing Custom Memory
@@ -214,6 +210,8 @@ public extension MemoryMessage {
         tokenLimit: Int,
         tokenEstimator: any TokenEstimator = CharacterBasedTokenEstimator.shared
     ) -> String {
+        guard tokenLimit > 0 else { return "" }
+
         var result: [String] = []
         var currentTokens = 0
 
@@ -221,6 +219,10 @@ public extension MemoryMessage {
         for message in messages.reversed() {
             let formatted = message.formattedContent
             let messageTokens = tokenEstimator.estimateTokens(for: formatted)
+
+            if messageTokens > tokenLimit {
+                continue
+            }
 
             if currentTokens + messageTokens <= tokenLimit {
                 result.append(formatted)
@@ -251,6 +253,8 @@ public extension MemoryMessage {
         separator: String,
         tokenEstimator: any TokenEstimator = CharacterBasedTokenEstimator.shared
     ) -> String {
+        guard tokenLimit > 0 else { return "" }
+
         var result: [String] = []
         var currentTokens = 0
         let separatorTokens = tokenEstimator.estimateTokens(for: separator)
@@ -259,6 +263,10 @@ public extension MemoryMessage {
             let formatted = message.formattedContent
             let messageTokens = tokenEstimator.estimateTokens(for: formatted)
             let totalNeeded = messageTokens + (result.isEmpty ? 0 : separatorTokens)
+
+            if messageTokens > tokenLimit {
+                continue
+            }
 
             if currentTokens + totalNeeded <= tokenLimit {
                 result.append(formatted)

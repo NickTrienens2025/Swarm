@@ -10,7 +10,7 @@ Add Swarm to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/christopherkarani/Swarm.git", from: "0.5.0")
+    .package(url: "https://github.com/christopherkarani/Swarm.git", from: "0.6.0")
 ],
 targets: [
     .target(name: "YourApp", dependencies: ["Swarm"])
@@ -40,8 +40,8 @@ struct PriceTool {
 let agent = try Agent("Answer finance questions using real data.",
     configuration: .default.name("Analyst"),
     inferenceProvider: .anthropic(key: "sk-..."),
-    memory: .conversation(limit: 50),
-    inputGuardrails: [.maxInput(5000), .inputNotEmpty]
+    memory: .conversation(maxMessages: 50),
+    inputGuardrails: [InputGuard.maxLength(5000), InputGuard.notEmpty()]
 ) {
     PriceTool()
     CalculatorTool()
@@ -137,11 +137,11 @@ Stream `AgentEvent` values in real time -- ideal for live UI:
 ```swift
 for try await event in agent.stream("Tell me about Swift concurrency.") {
     switch event {
-    case .outputToken(let token):
+    case .output(.token(let token)):
         print(token, terminator: "")
-    case .toolCallStarted(let call):
+    case .tool(.started(let call)):
         print("\n[tool: \(call.toolName)]")
-    case .completed(let result):
+    case .lifecycle(.completed(let result)):
         print("\nDone in \(result.duration)")
     default:
         break
@@ -225,7 +225,7 @@ Swarm supports multiple inference providers. Pass via the `inferenceProvider:` i
 
 ```swift
 // On-device (private, no network)
-let agent = try Agent("You are helpful.", inferenceProvider: .foundationModels)
+let agent = try Agent("You are helpful.", inferenceProvider: .foundationModels())
 
 // Anthropic
 let agent = try Agent("You are helpful.", inferenceProvider: .anthropic(key: "sk-..."))
@@ -234,7 +234,7 @@ let agent = try Agent("You are helpful.", inferenceProvider: .anthropic(key: "sk
 let agent = try Agent("You are helpful.", inferenceProvider: .openAI(key: "sk-..."))
 
 // Ollama (local)
-let agent = try Agent("You are helpful.", inferenceProvider: .ollama())
+let agent = try Agent("You are helpful.", inferenceProvider: .ollama(model: "llama3.2"))
 ```
 
 Or using the `.environment()` modifier on any `AgentRuntime`:
@@ -253,12 +253,12 @@ agent.environment(\.inferenceProvider, .anthropic(key: "sk-..."))
 | Linux | Ubuntu 22.04+ with Swift 6.2 |
 
 ::: tip
-Foundation Models require iOS 26 / macOS 26. Cloud providers (Anthropic, OpenAI, Ollama) work on any Swift 6.2 platform including Linux.
+The default Swarm graph is CI-tested on Ubuntu with Swift 6.2. Apple-only features such as Foundation Models, SwiftData, OSLog, and some built-in tool behavior are unavailable or different on Linux; cloud providers and Ollama use the shared `InferenceProvider` surface.
 :::
 
 ## Next Steps
 
 - **[Agents](../reference/front-facing-api.md#3-agent-struct-primary-init)** -- Agent types, configuration, tool calling
-- **[Tools](../reference/front-facing-api.md#5-tool-and-functiontool)** -- `@Tool` macro, `FunctionTool`, tool chains
+- **[Tools](../reference/front-facing-api.md#5-tool-and-functiontool)** -- `@Tool` macro, `FunctionTool`, `ToolCollection`, and `@ToolBuilder`
 - **[Workflow](../reference/front-facing-api.md#7-workflow)** -- Sequential, parallel, and routed execution
-- **[Memory](../reference/front-facing-api.md#10-memoryoption)** -- Conversation, vector, summary, persistent
+- **[Memory](../reference/front-facing-api.md#9-memory-factories)** -- Conversation, vector, summary, persistent

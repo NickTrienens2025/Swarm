@@ -60,7 +60,9 @@ The concrete agent type. Creates an immutable configuration; execution state liv
 public struct Agent: AgentRuntime
 ```
 
-### Canonical initializer
+### Low-level compatibility initializer
+
+This initializer remains public for compatibility and generated collections. Most application code should prefer the V3 initializer in section 4, which takes unlabeled instructions and a trailing `@ToolBuilder` closure.
 
 ```swift
 try Agent(
@@ -124,7 +126,7 @@ try Agent(
     outputGuardrails: [any OutputGuardrail] = [],
     guardrailRunnerConfiguration: GuardrailRunnerConfiguration = .default,
     handoffs: [AnyHandoffConfiguration] = [],
-    @ToolBuilder tools: () -> [any AnyJSONTool] = { [] }
+    @ToolBuilder tools: () -> ToolCollection = { .empty }
 )
 ```
 
@@ -143,7 +145,7 @@ let agent = try Agent("You are a helpful assistant.") {
 let agent = try Agent(
     "You are a helpful assistant.",
     configuration: .init(name: "Assistant"),
-    memory: .conversation(limit: 50),
+    memory: .conversation(maxMessages: 50),
     inferenceProvider: .anthropic(key: "sk-..."),
     inputGuardrails: [MaxInputLengthGuardrail(maxLength: 5000)],
     handoffs: [AnyHandoffConfiguration(targetAgent: supportAgent)]
@@ -166,15 +168,18 @@ let agent = try Agent(
 | `outputGuardrails` | `[any OutputGuardrail]` | `[]` | Output validation guardrails |
 | `guardrailRunnerConfiguration` | `GuardrailRunnerConfiguration` | `.default` | Guardrail runner settings |
 | `handoffs` | `[AnyHandoffConfiguration]` | `[]` | Handoff targets for multi-agent orchestration |
-| `tools` | `@ToolBuilder () -> [any AnyJSONTool]` | `{ [] }` | Trailing closure producing the agent's tools |
+| `tools` | `@ToolBuilder () -> ToolCollection` | `{ .empty }` | Trailing closure producing the agent's tools |
 
-### Runtime modifiers (on AgentRuntime)
+### Runtime wrappers (on AgentRuntime)
 
-Only `.environment()` and `.memory()` exist as modifier methods, provided by `AgentRuntime` extensions:
+Core runtime wrappers are provided by `AgentRuntime` extensions:
 
 ```swift
-agent.environment(\.inferenceProvider, myProvider)  // returns EnvironmentAgent
-agent.observed(by: myObserver)                      // returns some AgentRuntime
+agent.environment(\.inferenceProvider, myProvider)      // returns EnvironmentAgent
+agent.memory(.conversation(maxMessages: 50))            // returns EnvironmentAgent
+agent.promptTokenCounter(myCounter)                     // returns EnvironmentAgent
+agent.webSearch(WebSearchTool.Configuration(enabled: false))
+agent.observed(by: myObserver)                          // returns some AgentRuntime
 ```
 
 ## 5) Tool and FunctionTool
@@ -214,6 +219,8 @@ Agent("instructions") {
 }
 ```
 
+The builder produces an opaque `ToolCollection`; callers supply concrete `Tool` values or `[any Tool]`, and Swarm handles the internal type erasure.
+
 ## 6) Conversation
 
 Stateful multi-turn conversation wrapper.
@@ -236,8 +243,16 @@ public actor Conversation {
 
     @discardableResult
     public func streamText(_ input: String) async throws -> String
+
+    public func branch() async throws -> Conversation
 }
 ```
+
+`send(_:)` appends the user message and final assistant result to the transcript.
+`stream(_:)` exposes raw events and does not mutate transcript history; use
+`streamText(_:)` when you want streamed text collected and appended. `branch()`
+creates an isolated conversation with the current transcript and, when supported
+by the runtime or session, branched execution state.
 
 ## 7) Workflow
 
@@ -256,9 +271,39 @@ public struct Workflow: Sendable {
 
     // Composition
     public func step(_ agent: some AgentRuntime) -> Workflow
-    public func parallel(_ agents: [any AgentRuntime], merge: MergeStrategy = .structured) -> Workflow
-    public func route(_ condition: @escaping @Sendable (String) -> (any AgentRuntime)?) -> Workflow
-    public func repeatUntil(maxIterations: Int = 100, _ condition: @escaping @Sendable (AgentResult) -> Bool) -> Workflow
+    public func parallel(
+        _ agents: [any AgentRuntime],
+        merge: MergeStrategy = .structured,
+        customMergeSignature: String? = nil,
+        fileID: StaticString = #fileID,
+        line: UInt = #line
+    ) -> Workflow
+    public func route(
+        _ condition: @escaping @Sendable (String) -> (any AgentRuntime)?,
+        signature: String? = nil,
+        fileID: StaticString = #fileID,
+        line: UInt = #line
+    ) -> Workflow
+    public func route(
+        signature: String,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        _ condition: @escaping @Sendable (String) -> (any AgentRuntime)?
+    ) -> Workflow
+    public func repeatUntil(
+        maxIterations: Int = 100,
+        _ condition: @escaping @Sendable (AgentResult) -> Bool,
+        signature: String? = nil,
+        fileID: StaticString = #fileID,
+        line: UInt = #line
+    ) -> Workflow
+    public func repeatUntil(
+        maxIterations: Int = 100,
+        signature: String,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        _ condition: @escaping @Sendable (AgentResult) -> Bool
+    ) -> Workflow
     public func timeout(_ duration: Duration) -> Workflow
     public func observed(by observer: some AgentObserver) -> Workflow
 
@@ -289,23 +334,20 @@ WorkflowCheckpointing.inMemory()
 WorkflowCheckpointing.fileSystem(directory: URL)
 ```
 
-## 8) GuardrailSpec
+## 8) InputGuard and OutputGuard
 
-Concrete guardrail descriptors with static factories. Used as init parameters on `Agent`.
+Concrete guardrails with static factories. Used as init parameters on `Agent`.
 
 ```swift
-public struct GuardrailSpec: Sendable {
-    // Input guardrails
-    public static func maxInput(_ length: Int) -> GuardrailSpec
-    public static var inputNotEmpty: GuardrailSpec
+public struct InputGuard: InputGuardrail, Sendable {
+    public static func maxLength(_ maxLength: Int, name: String = "MaxLengthGuardrail") -> InputGuard
+    public static func notEmpty(name: String = "NotEmptyGuardrail") -> InputGuard
+    public static func custom(_ name: String, _ validate: @escaping @Sendable (String) async throws -> GuardrailResult) -> InputGuard
+}
 
-    // Output guardrails
-    public static func maxOutput(_ length: Int) -> GuardrailSpec
-    public static var outputNotEmpty: GuardrailSpec
-
-    // Custom guardrails
-    public static func customInput(_ name: String, _ validate: @escaping @Sendable (String) async throws -> GuardrailResult) -> GuardrailSpec
-    public static func customOutput(_ name: String, _ validate: @escaping @Sendable (String) async throws -> GuardrailResult) -> GuardrailSpec
+public struct OutputGuard: OutputGuardrail, Sendable {
+    public static func maxLength(_ maxLength: Int, name: String = "MaxOutputLengthGuardrail") -> OutputGuard
+    public static func custom(_ name: String, _ validate: @escaping @Sendable (String) async throws -> GuardrailResult) -> OutputGuard
 }
 ```
 
@@ -313,40 +355,43 @@ public struct GuardrailSpec: Sendable {
 
 ```swift
 public protocol InputGuardrail: Sendable {
-    func validate(input: String) async throws -> GuardrailResult
+    func validate(_ input: String, context: AgentContext?) async throws -> GuardrailResult
 }
 
 public protocol OutputGuardrail: Sendable {
-    func validate(output: String) async throws -> GuardrailResult
+    func validate(_ output: String, agent: any AgentRuntime, context: AgentContext?) async throws -> GuardrailResult
 }
 ```
 
-## 9) RunOptions
+## 9) Memory factories
+
+Dot-syntax memory factories are contextual. Use them where Swift can infer a
+specific memory type, such as the `memory:` init parameter, or assign to the
+concrete memory actor type. Do not call these as static members on the
+`Memory` protocol.
 
 ```swift
-public struct RunOptions: Sendable {
-    public var maxIterations: Int
-    public var parallelToolCalls: Bool
-    public var modelSettings: ModelSettings?
+let agent = try Agent(
+    "Remember recent context.",
+    memory: .conversation(maxMessages: 100)
+)
 
-    public static let `default`: RunOptions
-}
+let sliding: SlidingWindowMemory = .slidingWindow(maxTokens: 4000)
+let summary: SummaryMemory = .summary(configuration: .default, summarizer: TruncatingSummarizer.shared)
+let hybrid: HybridMemory = .hybrid(configuration: .default, summarizer: TruncatingSummarizer.shared)
+let persistent: PersistentMemory = .persistent(
+    backend: InMemoryBackend(),
+    conversationId: UUID().uuidString,
+    maxMessages: 0
+)
+let vector: VectorMemory = .vector(
+    embeddingProvider: embedder,
+    similarityThreshold: 0.7,
+    maxResults: 10
+)
 ```
 
-## 10) MemoryOption
-
-Dot-syntax memory factories used with the `memory` init parameter.
-
-```swift
-public struct MemoryOption {
-    public static func conversation(limit: Int = 100) -> MemoryOption
-    public static func vector(embeddingProvider: some EmbeddingProvider, threshold: Double = 0.75) -> MemoryOption
-    public static func slidingWindow(count: Int) -> MemoryOption
-    public static func summary(summarizer: some Summarizer) -> MemoryOption
-}
-```
-
-## 11) HandoffTool
+## 10) HandoffTool
 
 Agents passed via the `handoffs` or `handoffAgents` init parameters are automatically wrapped as tool calls. The LLM can invoke them to delegate control.
 
@@ -363,50 +408,120 @@ let triage = try Agent(
 )
 ```
 
-## 12) Inference providers
+## 11) Inference providers
 
 ```swift
 public protocol InferenceProvider: Sendable {
-    func generate(
-        messages: [InferenceMessage],
+    func generate(prompt: String, options: InferenceOptions) async throws -> String
+
+    func stream(
+        prompt: String,
+        options: InferenceOptions
+    ) -> AsyncThrowingStream<String, Error>
+
+    func generateWithToolCalls(
+        prompt: String,
         tools: [ToolSchema],
         options: InferenceOptions
     ) async throws -> InferenceResponse
 }
 
-public protocol InferenceStreamingProvider: InferenceProvider {
-    func stream(
+public protocol ConversationInferenceProvider: InferenceProvider {
+    func generate(
+        messages: [InferenceMessage],
+        options: InferenceOptions
+    ) async throws -> String
+
+    func generateWithToolCalls(
         messages: [InferenceMessage],
         tools: [ToolSchema],
         options: InferenceOptions
-    ) -> AsyncThrowingStream<InferenceStreamEvent, Error>
+    ) async throws -> InferenceResponse
 }
 ```
 
 ### Provider factories (dot-syntax)
 
 ```swift
-.anthropic(key: "sk-...")
-.openAI(key: "sk-...")
+.anthropic(apiKey: "sk-...")
+.openAI(apiKey: "sk-...")
+.openRouter(apiKey: "sk-...", model: "anthropic/claude-3.5-sonnet")
+.gemini(apiKey: "sk-...", model: "gemini-2.0-flash")  // Routed through OpenRouter
+.minimax(apiKey: "sk-...", model: "minimax-01")        // Routed through OpenRouter unless native MiniMax is compiled in
 .ollama(model: "llama3")
-.foundationModels       // On-device, iOS 26 / macOS 26
+.foundationModels()     // On-device, iOS 26 / macOS 26 when FoundationModels is available
 ```
 
-## 13) Events and results
+The `apiKey:` factories return `ConduitProviderSelection`, Swarm's thin
+Conduit-backed provider facade. The `key:` aliases on `LLM` are still public and
+Conduit-backed, but new docs should prefer `apiKey:` so provider selection reads
+the same across Anthropic, OpenAI, OpenRouter, Gemini, and MiniMax.
+
+| Factory family | Return type | Notes |
+|----------------|-------------|-------|
+| `.anthropic(apiKey:model:)` | `ConduitProviderSelection` | Preferred Conduit-backed Anthropic selection |
+| `.openAI(apiKey:model:)` | `ConduitProviderSelection` | Preferred Conduit-backed OpenAI selection |
+| `.openRouter(apiKey:model:)` | `ConduitProviderSelection` | Also supports a routing configuration closure |
+| `.gemini(apiKey:model:)` | `ConduitProviderSelection` | Routes through OpenRouter with `google/` model prefix when needed |
+| `.minimax(apiKey:model:)` | `ConduitProviderSelection` | Uses native MiniMax only when compiled in; otherwise routes through OpenRouter |
+| `.ollama(model:)` | `ConduitProviderSelection` | Supports settings closure or `baseURL:` overload |
+| `.foundationModels()` | `ConduitProviderSelection` | Apple-platform only when FoundationModels is available |
+| `LLM.*(key:model:)` | `LLM` | Public compatibility/beginner aliases; still valid but not the canonical spelling |
+| `LLM.ollama(_:)` | `LLM` | Beginner-friendly local Ollama alias with optional settings closure |
+| `LLM.mlx(_:)`, `LLM.mlxLocal(_:)` | `LLM` | Available only when MLX can be imported |
+
+## 12) Events and results
 
 ```swift
 public enum AgentEvent: Sendable {
-    case started(input: String)
-    case completed(result: AgentResult)
-    case failed(error: AgentError)
-    case cancelled
-    case outputToken(token: String)
-    case outputChunk(chunk: String)
-    case toolCallStarted(call: ToolCall)
-    case toolCallCompleted(call: ToolCall, result: ToolResult)
-    case handoffStarted(from: String, to: String, input: String)
-    case handoffCompleted(from: String, to: String)
-    // ... and more
+    case lifecycle(Lifecycle)
+    case tool(Tool)
+    case output(Output)
+    case handoff(Handoff)
+    case observation(Observation)
+
+    public enum Lifecycle: Sendable {
+        case started(input: String)
+        case completed(result: AgentResult)
+        case failed(error: AgentError)
+        case cancelled
+        case guardrailFailed(error: GuardrailError)
+        case iterationStarted(number: Int)
+        case iterationCompleted(number: Int)
+    }
+
+    public enum Tool: Sendable {
+        case started(call: ToolCall)
+        case partial(update: PartialToolCallUpdate)
+        case completed(call: ToolCall, result: ToolResult)
+        case failed(call: ToolCall, error: AgentError)
+    }
+
+    public enum Output: Sendable {
+        case token(String)
+        case chunk(String)
+        case thinking(thought: String)
+        case thinkingPartial(String)
+    }
+
+    public enum Handoff: Sendable {
+        case requested(from: String, to: String, reason: String?)
+        case completed(from: String, to: String)
+        case started(from: String, to: String, input: String)
+        case completedWithResult(from: String, to: String, result: AgentResult)
+        case skipped(from: String, to: String, reason: String)
+    }
+
+    public enum Observation: Sendable {
+        case decision(String, options: [String]?)
+        case planUpdated(String, stepCount: Int)
+        case guardrailStarted(name: String, type: GuardrailType)
+        case guardrailPassed(name: String, type: GuardrailType)
+        case guardrailTriggered(name: String, type: GuardrailType, message: String?)
+        case memoryAccessed(operation: MemoryOperation, count: Int)
+        case llmStarted(model: String?, promptTokens: Int?)
+        case llmCompleted(model: String?, promptTokens: Int?, completionTokens: Int?, duration: TimeInterval)
+    }
 }
 
 public struct AgentResult: Sendable {
@@ -419,14 +534,97 @@ public struct AgentResult: Sendable {
 }
 ```
 
-## 14) Public macros
+## 13) Public macros
 
 | Macro | Applied To | Effect |
 |-------|-----------|--------|
-| `@Tool("description")` | `struct` | Synthesizes `AnyJSONTool` conformance + JSON schema from `@Parameter` properties |
+| `@Tool("description")` | `struct` | Synthesizes `Tool` and `Sendable` conformance, typed `Input`/`Output`, argument decoding, and JSON schema from `@Parameter` properties |
 | `@Parameter("description")` | `var` inside `@Tool` struct | Marks property as a schema parameter with description |
 | `@Traceable` | `struct` conforming to `AnyJSONTool` | Injects tracing around `execute()` |
 | `#Prompt(...)` | call site | Type-safe interpolated prompt string |
+| `#Tool("name", "description")` | call site | Creates an inline `Tool` from a closure with labeled parameters |
+| `@Builder` | `struct` | Generates fluent setters for stored `var` properties |
+
+Inline tool example:
+
+```swift
+let greet = #Tool("greet", "Greets a person") { (name: String) in
+    "Hello, \(name)!"
+}
+```
+
+## 14) Companion products
+
+The package exports four public library products:
+
+| Product | Source surface | Public entry points |
+|---------|----------------|---------------------|
+| `Swarm` | `Sources/Swarm` | Agents, tools, workflows, memory, guardrails, providers, MCP client/bridge, workspace, resilience, observability, macros |
+| `SwarmOpenTelemetry` | `Sources/SwarmOpenTelemetry` | `OpenTelemetryInferenceProvider`, `InferenceProvider.instrumentedWithOpenTelemetry(...)`, `AgentRuntime.instrumentedWithOpenTelemetry(...)`, and `SwarmRuntimeTracer` |
+| `SwarmMembrane` | `Sources/SwarmMembrane` | Re-export product for Swarm's Membrane integration. The target is `@_exported import Swarm`, so public Membrane symbols are the `MembraneEnvironment`, `MembraneFeatureConfiguration`, `MembraneAgentAdapter`, and `DefaultMembraneAgentAdapter` APIs cataloged under `Sources/Swarm/Integration/Membrane/`. |
+| `SwarmMCP` | `Sources/SwarmMCP` | `SwarmMCPServerService`, `SwarmMCPToolCatalog`, `SwarmMCPToolExecutor`, `SwarmMCPToolExecutionError`, and `SwarmMCPToolRegistryAdapter` |
+
+### OpenTelemetry wrappers
+
+```swift
+import Swarm
+import SwarmOpenTelemetry
+
+let tracedAgent = try Agent(
+    "Answer briefly.",
+    inferenceProvider: .openAI(apiKey: "sk-...")
+).instrumentedWithOpenTelemetry()
+
+let tracedProvider = LLM.ollama("llama3.2").instrumentedWithOpenTelemetry()
+```
+
+See [OpenTelemetry Tracing](../guide/opentelemetry-tracing.md) for SDK setup and
+URLSession instrumentation policy.
+
+### MCP server adapter
+
+The core `Swarm` product includes MCP client-side primitives:
+
+```swift
+let server = try HTTPMCPServer(
+    url: URL(string: "https://mcp.example.com/api")!,
+    name: "example-server",
+    apiKey: "sk-..."
+)
+
+let client = MCPClient()
+try await client.addServer(server)
+let tools = try await client.getAllTools()
+
+let bridge = MCPToolBridge(server: server)
+let bridgedTools = try await bridge.bridgeTools()
+```
+
+`HTTPMCPServer(url:name:apiKey:timeout:maxRetries:session:)` is the remote HTTP
+client. `MCPClient` aggregates multiple MCP servers and `MCPToolBridge` exposes
+remote MCP tools as Swarm JSON tools.
+
+`SwarmMCPServerService` exposes a `SwarmMCPToolCatalog` and
+`SwarmMCPToolExecutor` over the MCP Swift SDK transport. For a Swarm
+`ToolRegistry`, use `SwarmMCPToolRegistryAdapter` as both catalog and executor:
+
+```swift
+import Swarm
+import SwarmMCP
+
+let registry = try ToolRegistry(tools: [WeatherTool()])
+let adapter = SwarmMCPToolRegistryAdapter(registry: registry)
+let service = SwarmMCPServerService(
+    toolCatalog: adapter,
+    toolExecutor: adapter
+)
+
+try await service.startStdio()
+await service.waitUntilCompleted()
+```
+
+`SwarmMCPServerService` instances are single-use; create a fresh service to
+restart after `stop()`.
 
 ## 15) Naming guarantees
 

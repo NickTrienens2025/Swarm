@@ -3,7 +3,7 @@ import Wax
 import WaxVectorSearch
 
 /// Wax-backed memory implementation using the public Memory API.
-public actor WaxMemory: Memory, MemoryPromptDescriptor, MemorySessionLifecycle {
+public actor WaxMemory: Memory, MemoryPromptDescriptor, MemorySessionLifecycle, MemoryRetrievalPolicyAware {
     // MARK: Public
 
     /// Configuration for Wax memory behavior.
@@ -88,6 +88,7 @@ public actor WaxMemory: Memory, MemoryPromptDescriptor, MemorySessionLifecycle {
         guard persistedMessageIDs.contains(message.id) == false else {
             return
         }
+        let addGeneration = generation
 
         var metadata = message.metadata
         metadata["role"] = message.role.rawValue
@@ -97,6 +98,9 @@ public actor WaxMemory: Memory, MemoryPromptDescriptor, MemorySessionLifecycle {
         do {
             try await store.save(message.content, metadata: metadata)
             try await store.flush()
+            guard generation == addGeneration else {
+                return
+            }
             persistedMessages.append(message)
             persistedMessageIDs.insert(message.id)
         } catch {
@@ -114,11 +118,22 @@ public actor WaxMemory: Memory, MemoryPromptDescriptor, MemorySessionLifecycle {
         }
     }
 
+    public func context(for query: MemoryQuery) async -> String {
+        do {
+            let rag = try await store.search(query.text)
+            return formatRAGContext(rag, query: query)
+        } catch {
+            Log.memory.error("WaxMemory: Failed to recall context: \(error.localizedDescription)")
+            return ""
+        }
+    }
+
     public func allMessages() async -> [MemoryMessage] {
         persistedMessages
     }
 
     public func clear() async {
+        generation += 1
         do {
             try await store.close()
             try removePersistedStoreIfPresent()
@@ -155,6 +170,7 @@ public actor WaxMemory: Memory, MemoryPromptDescriptor, MemorySessionLifecycle {
     private let embedder: (any WaxVectorSearch.EmbeddingProvider)?
     private var persistedMessages: [MemoryMessage] = []
     private var persistedMessageIDs: Set<UUID> = []
+    private var generation: Int = 0
     private let isoFormatter = ISO8601DateFormatter()
 
     private func removePersistedStoreIfPresent() throws {
@@ -250,12 +266,143 @@ public actor WaxMemory: Memory, MemoryPromptDescriptor, MemorySessionLifecycle {
             let candidate = "\(prefix) \(item.text)"
             let tokens = configuration.tokenEstimator.estimateTokens(for: candidate)
 
+            if tokens > tokenLimit { continue }
             if usedTokens + tokens > tokenLimit { break }
             usedTokens += tokens
             lines.append(candidate)
         }
 
+        if lines.isEmpty, rag.items.isEmpty == false {
+            return MemoryMessage.formatContext(
+                persistedMessagesMatchingQueryText(query: rag.query),
+                tokenLimit: tokenLimit,
+                tokenEstimator: configuration.tokenEstimator
+            )
+        }
+
         return lines.joined(separator: "\n")
+    }
+
+    private func formatRAGContext(_ rag: RAGContext, query: MemoryQuery) -> String {
+        guard query.tokenLimit > 0 else { return "" }
+
+        var lines: [String] = []
+        var usedTokens = 0
+
+        for item in rag.items {
+            guard lines.count < query.maxItems else { break }
+
+            let candidate = formatRAGItem(item)
+            let itemLimit = min(query.maxItemTokens, query.tokenLimit)
+            let trimmedCandidate = trimToTokenLimit(candidate, tokenLimit: itemLimit)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedCandidate.isEmpty else {
+                continue
+            }
+
+            let tokens = configuration.tokenEstimator.estimateTokens(for: trimmedCandidate)
+            if usedTokens + tokens > query.tokenLimit {
+                if lines.isEmpty {
+                    let fallback = trimToTokenLimit(trimmedCandidate, tokenLimit: query.tokenLimit)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !fallback.isEmpty {
+                        lines.append(fallback)
+                    }
+                }
+                break
+            }
+
+            usedTokens += tokens
+            lines.append(trimmedCandidate)
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func formatRAGItem(_ item: RAGContext.Item) -> String {
+        let kind = switch item.kind {
+        case .expanded: "expanded"
+        case .surrogate: "surrogate"
+        case .snippet: "snippet"
+        }
+
+        let sources = item.sources.map { source in
+            switch source {
+            case .text: return "text"
+            case .vector: return "vector"
+            case .timeline: return "timeline"
+            case .structured: return "structured"
+            case .unknown: return "unknown"
+            }
+        }.joined(separator: ",")
+
+        let prefix = "[\(kind) frame:\(item.frameId) score:\(String(format: "%.2f", item.score)) sources:\(sources)]"
+        return "\(prefix) \(item.text)"
+    }
+
+    private func trimToTokenLimit(_ text: String, tokenLimit: Int) -> String {
+        guard tokenLimit > 0 else {
+            return ""
+        }
+
+        if configuration.tokenEstimator.estimateTokens(for: text) <= tokenLimit {
+            return text
+        }
+
+        var lower = 0
+        var upper = text.count
+        var best = ""
+
+        while lower <= upper {
+            let mid = (lower + upper) / 2
+            let candidate = prefix(text, maxCharacters: mid)
+            if configuration.tokenEstimator.estimateTokens(for: candidate) <= tokenLimit {
+                best = candidate
+                lower = mid + 1
+            } else {
+                upper = mid - 1
+            }
+        }
+
+        if !best.isEmpty {
+            return best
+        }
+
+        return prefix(text, maxCharacters: max(1, min(text.count, tokenLimit)))
+    }
+
+    private func prefix(_ text: String, maxCharacters: Int) -> String {
+        guard maxCharacters > 0 else { return "" }
+        guard text.count > maxCharacters else { return text }
+        let end = text.index(text.startIndex, offsetBy: maxCharacters)
+        return String(text[..<end])
+    }
+
+    private func persistedMessagesMatchingQueryText(query: String) -> [MemoryMessage] {
+        let terms = Self.distinctiveSearchTerms(in: query)
+        guard terms.isEmpty == false else { return [] }
+
+        return persistedMessages.filter { message in
+            let content = message.content.lowercased()
+            return terms.allSatisfy { content.contains($0) }
+        }
+    }
+
+    static func distinctiveSearchTerms(in text: String) -> [String] {
+        let stopWords: Set<String> = [
+            "about", "after", "again", "agent", "answer", "before", "context", "memory",
+            "message", "messages", "please", "question", "status", "their", "there",
+            "these", "those", "through", "using", "where", "which", "would"
+        ]
+
+        return Array(
+            Set(
+                text
+                    .lowercased()
+                    .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { $0.count >= 4 && stopWords.contains($0) == false }
+            )
+        ).sorted()
     }
 }
 
@@ -267,7 +414,7 @@ public extension WaxMemory {
 
     static func makeDefaultStoreURL() -> URL {
         let fileManager = FileManager.default
-        let isRunningTests = isRunningUnderTests()
+        let isRunningTests = SwarmRuntimeEnvironment.isRunningTests
         let baseURL = isRunningTests
             ? fileManager.temporaryDirectory
             : (fileManager.urls(
@@ -285,31 +432,6 @@ public extension WaxMemory {
         try? fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let fileName = isRunningTests ? "wax-memory-\(UUID().uuidString).mv2s" : "wax-memory.mv2s"
         return root.appendingPathComponent(fileName)
-    }
-
-    private static func isRunningUnderTests() -> Bool {
-        let processInfo = ProcessInfo.processInfo
-        let environment = processInfo.environment
-        if environment["XCTestConfigurationFilePath"] != nil ||
-            environment["XCTestSessionIdentifier"] != nil
-        {
-            return true
-        }
-
-        let arguments = processInfo.arguments.joined(separator: " ").lowercased()
-        if arguments.contains("xctest") ||
-            arguments.contains("swiftpm-testing-helper") ||
-            arguments.contains("swift-testing")
-        {
-            return true
-        }
-
-        let bundlePath = Bundle.main.bundlePath.lowercased()
-        if bundlePath.hasSuffix(".xctest") || bundlePath.contains("swiftpm-testing-helper") {
-            return true
-        }
-
-        return NSClassFromString("XCTestCase") != nil
     }
 }
 

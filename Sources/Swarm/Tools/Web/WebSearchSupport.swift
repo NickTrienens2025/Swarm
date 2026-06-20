@@ -13,6 +13,12 @@ import SwiftSoup
 import FoundationNetworking
 #endif
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
 #if canImport(PDFKit)
 import PDFKit
 #endif
@@ -628,7 +634,7 @@ internal struct WebExecutionEngine: Sendable {
             payload: payload,
             goal: goal,
             existingArtifactID: cached?.artifact.artifactID,
-            rawRootURL: configuration.storeURL.appendingPathComponent("raw", isDirectory: true)
+            rawRootURL: persist ? configuration.storeURL.appendingPathComponent("raw", isDirectory: true) : nil
         )
 
         if !persist {
@@ -1259,13 +1265,22 @@ internal struct TavilySearchBackend: Sendable {
 
 internal struct SafeWebFetcher: Sendable {
     let configuration: WebSearchTool.Configuration
+    private let sessionConfiguration: URLSessionConfiguration
+
+    init(
+        configuration: WebSearchTool.Configuration,
+        sessionConfiguration: URLSessionConfiguration = .ephemeral
+    ) {
+        self.configuration = configuration
+        self.sessionConfiguration = sessionConfiguration
+    }
 
     func fetch(
         url: URL,
         conditionalEtag: String?,
         conditionalLastModified: String?
     ) async throws -> WebFetchPayload {
-        try validate(url: url)
+        try Self.validate(url: url)
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -1279,10 +1294,21 @@ internal struct SafeWebFetcher: Sendable {
             request.setValue(conditionalLastModified, forHTTPHeaderField: "If-Modified-Since")
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let fetchDelegate = SafeWebFetchDelegate(maxBodyBytes: configuration.maxBodyBytes)
+        let session = URLSession(
+            configuration: sessionConfiguration,
+            delegate: fetchDelegate,
+            delegateQueue: nil
+        )
+        defer { session.finishTasksAndInvalidate() }
+
+        let data: Data
+        let response: URLResponse
+        (data, response) = try await fetchDelegate.fetch(request, using: session)
         guard let http = response as? HTTPURLResponse else {
             throw AgentError.toolExecutionFailed(toolName: "websearch", underlyingError: "Fetch returned a non-HTTP response")
         }
+        try Self.validate(url: http.url ?? url)
 
         if http.statusCode == 304 {
             return WebFetchPayload(
@@ -1323,7 +1349,16 @@ internal struct SafeWebFetcher: Sendable {
         )
     }
 
-    private func validate(url: URL) throws {
+    fileprivate static func isAllowedURL(_ url: URL) -> Bool {
+        do {
+            try validate(url: url)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func validate(url: URL) throws {
         guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else {
             throw AgentError.invalidToolArguments(toolName: "websearch", reason: "Only http/https URLs are allowed")
         }
@@ -1346,6 +1381,367 @@ internal struct SafeWebFetcher: Sendable {
                 throw AgentError.invalidToolArguments(toolName: "websearch", reason: "Private-network hosts are blocked")
             }
         }
+
+        let addresses = try ResolvedHostAddress.resolve(host: host)
+        if addresses.contains(where: \.isBlockedForFetch) {
+            throw AgentError.invalidToolArguments(toolName: "websearch", reason: "Private-network hosts are blocked")
+        }
+    }
+}
+
+private final class SafeWebFetchDelegate: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
+    private let maxBodyBytes: Int
+    private let state = SafeWebFetchDelegateState()
+
+    init(maxBodyBytes: Int) {
+        self.maxBodyBytes = maxBodyBytes
+    }
+
+    func fetch(_ request: URLRequest, using session: URLSession) async throws -> (Data, URLResponse) {
+        let task = SafeWebFetchTask(session.dataTask(with: request))
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                state.start(continuation)
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+            state.finish(throwing: CancellationError())
+        }
+    }
+
+    func urlSession(
+        _: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let url = response.url, SafeWebFetcher.isAllowedURL(url) else {
+            state.finish(
+                throwing: AgentError.invalidToolArguments(
+                    toolName: "websearch",
+                    reason: "Private-network hosts are blocked"
+                )
+            )
+            dataTask.cancel()
+            completionHandler(.cancel)
+            return
+        }
+        state.receive(response: response)
+        completionHandler(.allow)
+    }
+
+    func urlSession(
+        _: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+        do {
+            try state.receive(data: data, maxBodyBytes: maxBodyBytes)
+        } catch {
+            state.finish(throwing: error)
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error {
+            state.finish(throwing: error)
+        } else {
+            state.finish()
+        }
+    }
+
+    func urlSession(
+        _: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url, SafeWebFetcher.isAllowedURL(url) else {
+            state.finish(
+                throwing: AgentError.invalidToolArguments(
+                    toolName: "websearch",
+                    reason: "Private-network hosts are blocked"
+                )
+            )
+            task.cancel()
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+}
+
+private final class SafeWebFetchTask: @unchecked Sendable {
+    private let task: URLSessionDataTask
+
+    init(_ task: URLSessionDataTask) {
+        self.task = task
+    }
+
+    func resume() {
+        task.resume()
+    }
+
+    func cancel() {
+        task.cancel()
+    }
+}
+
+private final class SafeWebFetchDelegateState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+    private var response: URLResponse?
+    private var accumulator = SafeWebBodyAccumulator()
+    private var isFinished = false
+    private var finishedResult: Result<(Data, URLResponse), Error>?
+
+    func start(_ continuation: CheckedContinuation<(Data, URLResponse), Error>) {
+        let result: Result<(Data, URLResponse), Error>? = lock.withLock {
+            if isFinished {
+                return finishedResult ?? .failure(CancellationError())
+            }
+            self.continuation = continuation
+            return nil
+        }
+
+        if let result {
+            Self.resume(continuation, with: result)
+        }
+    }
+
+    func receive(response: URLResponse) {
+        lock.withLock {
+            self.response = response
+        }
+    }
+
+    func receive(data newData: Data, maxBodyBytes: Int) throws {
+        try lock.withLock {
+            try accumulator.append(newData, maxBodyBytes: maxBodyBytes)
+        }
+    }
+
+    func finish() {
+        let result: Result<(Data, URLResponse), Error> = lock.withLock {
+            guard isFinished == false else { return .failure(SafeWebFetchCompletion.alreadyFinished) }
+            isFinished = true
+            guard let response else {
+                let result: Result<(Data, URLResponse), Error> = .failure(
+                    AgentError.toolExecutionFailed(
+                        toolName: "websearch",
+                        underlyingError: "Fetch returned no response"
+                    )
+                )
+                finishedResult = result
+                return result
+            }
+            let result: Result<(Data, URLResponse), Error> = .success((accumulator.data, response))
+            finishedResult = result
+            return result
+        }
+        resume(with: result)
+    }
+
+    func finish(throwing error: Error) {
+        let result: Result<(Data, URLResponse), Error> = lock.withLock {
+            guard isFinished == false else { return .failure(SafeWebFetchCompletion.alreadyFinished) }
+            isFinished = true
+            let result: Result<(Data, URLResponse), Error> = .failure(error)
+            finishedResult = result
+            return result
+        }
+        resume(with: result)
+    }
+
+    private func resume(with result: Result<(Data, URLResponse), Error>) {
+        let continuation = lock.withLock {
+            let current = self.continuation
+            self.continuation = nil
+            return current
+        }
+        guard let continuation else { return }
+        Self.resume(continuation, with: result)
+    }
+
+    private static func resume(
+        _ continuation: CheckedContinuation<(Data, URLResponse), Error>,
+        with result: Result<(Data, URLResponse), Error>
+    ) {
+        switch result {
+        case let .success(value):
+            continuation.resume(returning: value)
+        case let .failure(error):
+            if (error as? SafeWebFetchCompletion) == .alreadyFinished {
+                return
+            }
+            continuation.resume(throwing: error)
+        }
+    }
+}
+
+private enum SafeWebFetchCompletion: Error {
+    case alreadyFinished
+}
+
+internal struct SafeWebBodyAccumulator: Sendable {
+    private(set) var data = Data()
+
+    mutating func append(_ newData: Data, maxBodyBytes: Int) throws {
+        let nextCount = data.count + newData.count
+        guard nextCount <= maxBodyBytes else {
+            throw AgentError.toolExecutionFailed(
+                toolName: "websearch",
+                underlyingError: "Fetched body exceeded limit of \(maxBodyBytes) bytes"
+            )
+        }
+        data.append(newData)
+    }
+}
+
+private enum ResolvedHostAddress: Sendable {
+    case ipv4(UInt8, UInt8, UInt8, UInt8)
+    case ipv6(String)
+
+    var isBlockedForFetch: Bool {
+        switch self {
+        case let .ipv4(first, second, _, _):
+            switch first {
+            case 0, 10, 127:
+                return true
+            case 100:
+                return (64 ... 127).contains(second)
+            case 169:
+                return second == 254
+            case 172:
+                return (16 ... 31).contains(second)
+            case 192:
+                return second == 0 || second == 168
+            case 198:
+                return (18 ... 19).contains(second) || second == 51
+            case 203:
+                return second == 0
+            case 224 ... 255:
+                return true
+            default:
+                return false
+            }
+        case let .ipv6(address):
+            let normalized = address
+                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+                .lowercased()
+
+            if normalized == "::" || normalized == "::1" {
+                return true
+            }
+            if let embeddedIPv4 = Self.embeddedIPv4(from: normalized) {
+                return embeddedIPv4.isBlockedForFetch
+            }
+            guard let firstHextet = normalized.split(separator: ":").first,
+                  let first = UInt16(firstHextet, radix: 16)
+            else {
+                return false
+            }
+            return (first & 0xFE00) == 0xFC00
+                || (first & 0xFFC0) == 0xFE80
+                || (first & 0xFF00) == 0xFF00
+        }
+    }
+
+    static func resolve(host: String) throws -> [ResolvedHostAddress] {
+        let normalizedHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if let literal = parseIPv4(normalizedHost) {
+            return [literal]
+        }
+        if normalizedHost.contains(":") {
+            return [.ipv6(normalizedHost)]
+        }
+
+        #if canImport(Darwin) || canImport(Glibc)
+        var hints = addrinfo(
+            ai_flags: AI_ADDRCONFIG,
+            ai_family: AF_UNSPEC,
+            ai_socktype: SOCK_STREAM,
+            ai_protocol: 0,
+            ai_addrlen: 0,
+            ai_canonname: nil,
+            ai_addr: nil,
+            ai_next: nil
+        )
+        var result: UnsafeMutablePointer<addrinfo>?
+        let status = getaddrinfo(normalizedHost, nil, &hints, &result)
+        guard status == 0, let result else {
+            throw AgentError.invalidToolArguments(toolName: "websearch", reason: "Unable to resolve URL host")
+        }
+        defer { freeaddrinfo(result) }
+
+        var addresses: [ResolvedHostAddress] = []
+        var cursor: UnsafeMutablePointer<addrinfo>? = result
+        while let current = cursor {
+            if let address = numericAddress(from: current.pointee) {
+                addresses.append(address)
+            }
+            cursor = current.pointee.ai_next
+        }
+        guard !addresses.isEmpty else {
+            throw AgentError.invalidToolArguments(toolName: "websearch", reason: "Unable to resolve URL host")
+        }
+        return addresses
+        #else
+        throw AgentError.invalidToolArguments(toolName: "websearch", reason: "Host resolution is unavailable on this platform")
+        #endif
+    }
+
+    private static func numericAddress(from info: addrinfo) -> ResolvedHostAddress? {
+        guard let socketAddress = info.ai_addr else {
+            return nil
+        }
+        var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        let status = getnameinfo(
+            socketAddress,
+            info.ai_addrlen,
+            &host,
+            socklen_t(host.count),
+            nil,
+            0,
+            NI_NUMERICHOST
+        )
+        guard status == 0 else {
+            return nil
+        }
+
+        let value = host.prefix(while: { $0 != 0 }).withUnsafeBufferPointer { buffer in
+            String(decoding: buffer.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        }
+        if let ipv4 = parseIPv4(value) {
+            return ipv4
+        }
+        return .ipv6(value)
+    }
+
+    private static func parseIPv4(_ host: String) -> ResolvedHostAddress? {
+        let parts = host.split(separator: ".")
+        guard parts.count == 4 else {
+            return nil
+        }
+        let octets = parts.compactMap { UInt8($0) }
+        guard octets.count == 4 else {
+            return nil
+        }
+        return .ipv4(octets[0], octets[1], octets[2], octets[3])
+    }
+
+    private static func embeddedIPv4(from ipv6: String) -> ResolvedHostAddress? {
+        guard let suffix = ipv6.split(separator: ":").last else {
+            return nil
+        }
+        return parseIPv4(String(suffix))
     }
 }
 
@@ -1354,7 +1750,7 @@ internal struct WebContentExtractor: Sendable {
         payload: WebFetchPayload,
         goal: String?,
         existingArtifactID: String?,
-        rawRootURL: URL
+        rawRootURL: URL?
     ) throws -> StoredWebArtifact {
         let finalURL = try canonicalizeURL(payload.finalURL.absoluteString)
         let pageType = classify(payload: payload, url: finalURL)
@@ -1415,8 +1811,12 @@ internal struct WebContentExtractor: Sendable {
         let artifactID = sections.first?.artifactID ?? existingArtifactID ?? UUID().uuidString
         let hostTrust = hostTrustProfile(for: finalURL)
         let fetchedAt = Date()
-        let rawFileURL = rawFileURL(rootURL: rawRootURL, artifactID: artifactID, contentType: payload.contentType)
-        try payload.data.write(to: rawFileURL, options: .atomic)
+        let rawArtifactURL = rawRootURL.map {
+            rawFileURL(rootURL: $0, artifactID: artifactID, contentType: payload.contentType)
+        }
+        if let rawArtifactURL {
+            try payload.data.write(to: rawArtifactURL, options: .atomic)
+        }
 
         let normalizedSections = sections.enumerated().map { index, section in
             var copy = section
@@ -1458,7 +1858,7 @@ internal struct WebContentExtractor: Sendable {
             pageType: pageType,
             hostTrust: hostTrust,
             freshnessScore: WaxWebArtifactStore.freshnessScore(fetchedAt: fetchedAt, pageType: pageType),
-            rawArtifactRef: rawFileURL.path
+            rawArtifactRef: rawArtifactURL?.path ?? ""
         )
         return StoredWebArtifact(artifact: artifact, document: document)
     }

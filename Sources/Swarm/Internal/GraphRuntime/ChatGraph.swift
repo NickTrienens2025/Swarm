@@ -196,6 +196,10 @@ struct HiveCompactionPolicy: Sendable {
 struct RuntimeContext: Sendable {
     let modelName: String
     let systemPrompt: String?
+    let model: AnyHiveModelClient?
+    let modelRouter: (any HiveModelRouter)?
+    let inferenceHints: HiveInferenceHints?
+    let tools: AnyHiveToolRegistry?
     let toolApprovalPolicy: ToolApprovalPolicy
     let compactionPolicy: HiveCompactionPolicy?
     let tokenizer: (any HiveTokenizer)?
@@ -205,6 +209,10 @@ struct RuntimeContext: Sendable {
     init(
         modelName: String,
         systemPrompt: String? = nil,
+        model: AnyHiveModelClient? = nil,
+        modelRouter: (any HiveModelRouter)? = nil,
+        inferenceHints: HiveInferenceHints? = nil,
+        tools: AnyHiveToolRegistry? = nil,
         toolApprovalPolicy: ToolApprovalPolicy = .never,
         compactionPolicy: HiveCompactionPolicy? = nil,
         tokenizer: (any HiveTokenizer)? = nil,
@@ -213,11 +221,36 @@ struct RuntimeContext: Sendable {
     ) {
         self.modelName = modelName
         self.systemPrompt = systemPrompt
+        self.model = model
+        self.modelRouter = modelRouter
+        self.inferenceHints = inferenceHints
+        self.tools = tools
         self.toolApprovalPolicy = toolApprovalPolicy
         self.compactionPolicy = compactionPolicy
         self.tokenizer = tokenizer
         self.retryPolicy = retryPolicy
         self.membraneCheckpointAdapter = membraneCheckpointAdapter
+    }
+
+    func withExecution(
+        model: AnyHiveModelClient?,
+        modelRouter: (any HiveModelRouter)?,
+        inferenceHints: HiveInferenceHints?,
+        tools: AnyHiveToolRegistry?
+    ) -> RuntimeContext {
+        RuntimeContext(
+            modelName: modelName,
+            systemPrompt: systemPrompt,
+            model: model ?? self.model,
+            modelRouter: modelRouter ?? self.modelRouter,
+            inferenceHints: inferenceHints ?? self.inferenceHints,
+            tools: tools ?? self.tools,
+            toolApprovalPolicy: toolApprovalPolicy,
+            compactionPolicy: compactionPolicy,
+            tokenizer: tokenizer,
+            retryPolicy: retryPolicy,
+            membraneCheckpointAdapter: membraneCheckpointAdapter
+        )
     }
 }
 
@@ -468,7 +501,7 @@ extension ChatGraph {
                 }
                 return false
             }) {
-                throw HiveRuntimeError.invalidMessagesUpdate
+                throw SwarmRuntimeError.invalidMessagesUpdate
             }
 
             if let lastRemoveAllIndex = updates.lastIndex(where: { message in
@@ -496,7 +529,7 @@ extension ChatGraph {
                     continue
                 case .remove:
                     guard indexByID[message.id] != nil else {
-                        throw HiveRuntimeError.invalidMessagesUpdate
+                        throw SwarmRuntimeError.invalidMessagesUpdate
                     }
                     deleted.insert(message.id)
                 case nil:
@@ -519,6 +552,7 @@ extension ChatGraph {
                     id: message.id,
                     role: message.role,
                     content: message.content,
+                    reasoningContent: message.reasoningContent,
                     name: message.name,
                     toolCallID: message.toolCallID,
                     toolCalls: message.toolCalls,
@@ -657,8 +691,8 @@ extension ChatGraph {
             if let toolProvider {
                 tools = await toolProvider()
             } else {
-                guard let registry = input.environment.tools else {
-                    throw HiveRuntimeError.toolRegistryMissing
+                guard let registry = input.context.tools else {
+                    throw SwarmRuntimeError.toolRegistryMissing
                 }
                 tools = registry.listTools()
             }
@@ -671,12 +705,12 @@ extension ChatGraph {
             )
 
             let client: AnyHiveModelClient
-            if let router = input.environment.modelRouter {
-                client = router.route(request, hints: input.environment.inferenceHints)
-            } else if let model = input.environment.model {
+            if let router = input.context.modelRouter {
+                client = router.route(request, hints: input.context.inferenceHints)
+            } else if let model = input.context.model {
                 client = model
             } else {
-                throw HiveRuntimeError.modelClientMissing
+                throw SwarmRuntimeError.modelClientMissing
             }
 
             // Wrap model invocation in retry if configured.
@@ -684,21 +718,21 @@ extension ChatGraph {
                 policy: input.context.retryPolicy,
                 clock: input.environment.clock
             ) {
-                input.emitStream(.modelInvocationStarted(model: request.model), [:])
+                input.emitStream(.customDebug(name: "modelInvocationStarted"), ["model": request.model])
 
                 var resultMessage: HiveChatMessage?
                 var sawFinal = false
 
                 for try await chunk in client.stream(request) {
                     if sawFinal {
-                        throw HiveRuntimeError.modelStreamInvalid("Received token after final.")
+                            throw SwarmRuntimeError.modelStreamInvalid("Received token after final.")
                     }
                     switch chunk {
                     case let .token(text):
-                        input.emitStream(.modelToken(text: text), [:])
+                        input.emitStream(.customDebug(name: "modelToken"), ["text": text])
                     case let .final(response):
                         if resultMessage != nil {
-                            throw HiveRuntimeError.modelStreamInvalid("Received multiple final chunks.")
+                            throw SwarmRuntimeError.modelStreamInvalid("Received multiple final chunks.")
                         }
                         resultMessage = response.message
                         sawFinal = true
@@ -706,10 +740,10 @@ extension ChatGraph {
                 }
 
                 guard sawFinal, let resultMessage else {
-                    throw HiveRuntimeError.modelStreamInvalid("Missing final chunk.")
+                    throw SwarmRuntimeError.modelStreamInvalid("Missing final chunk.")
                 }
 
-                input.emitStream(.modelInvocationFinished, [:])
+                input.emitStream(.customDebug(name: "modelInvocationFinished"), [:])
                 return resultMessage
             }
 
@@ -722,6 +756,7 @@ extension ChatGraph {
                 id: assistantMessageID,
                 role: assistantMessage.role,
                 content: assistantMessage.content,
+                reasoningContent: assistantMessage.reasoningContent,
                 name: assistantMessage.name,
                 toolCallID: assistantMessage.toolCallID,
                 toolCalls: assistantMessage.toolCalls,
@@ -838,8 +873,8 @@ extension ChatGraph {
                 return HiveNodeOutput(next: .to([NodeID.model]))
             }
 
-            guard let registry = input.environment.tools else {
-                throw HiveRuntimeError.toolRegistryMissing
+            guard let registry = input.context.tools else {
+                throw SwarmRuntimeError.toolRegistryMissing
             }
 
             let toolMessages: [HiveChatMessage] = try await withThrowingTaskGroup(
@@ -848,7 +883,7 @@ extension ChatGraph {
                 for (index, call) in calls.enumerated() {
                     group.addTask {
                         let metadata = ["toolCallID": call.id]
-                        input.emitStream(.toolInvocationStarted(name: call.name), metadata)
+                        input.emitStream(.customDebug(name: "toolInvocationStarted"), metadata.merging(["name": call.name]) { current, _ in current })
                         do {
                             let result = try await withRetry(
                                 policy: input.context.retryPolicy,
@@ -862,7 +897,11 @@ extension ChatGraph {
                                 toolName: call.name,
                                 tokenEstimate: tokenEstimate
                             )
-                            input.emitStream(.toolInvocationFinished(name: call.name, success: true), metadata)
+                            input.emitStream(.customDebug(name: "toolInvocationFinished"), metadata.merging([
+                                "name": call.name,
+                                "success": "true",
+                                "output": transformed,
+                            ]) { current, _ in current })
                             return (index, HiveChatMessage(
                                 id: "tool:" + call.id,
                                 role: .tool,
@@ -872,7 +911,10 @@ extension ChatGraph {
                                 op: nil
                             ))
                         } catch {
-                            input.emitStream(.toolInvocationFinished(name: call.name, success: false), metadata)
+                            input.emitStream(.customDebug(name: "toolInvocationFinished"), metadata.merging([
+                                "name": call.name,
+                                "success": "false",
+                            ]) { current, _ in current })
                             throw error
                         }
                     }
@@ -925,7 +967,7 @@ extension ChatGraph {
                         if sleepNs > 0 {
                             try await clock.sleep(nanoseconds: sleepNs)
                         }
-                        delay = UInt64(Double(delay) * factor)
+                        delay = saturatedRetryDelay(delay, factor: factor, maxNanoseconds: maxNs)
                     }
                 }
             }
@@ -935,6 +977,21 @@ extension ChatGraph {
                 throw HiveRuntimeError.invalidRunOptions("Retry policy exhausted with no error recorded")
             }
         }
+    }
+
+    private static func saturatedRetryDelay(_ delay: UInt64, factor: Double, maxNanoseconds: UInt64) -> UInt64 {
+        guard delay > 0, factor.isFinite, factor > 0 else {
+            return 0
+        }
+
+        let grown = Double(delay) * factor
+        guard grown.isFinite, grown > 0 else {
+            return maxNanoseconds
+        }
+        if grown >= Double(UInt64.max) {
+            return maxNanoseconds
+        }
+        return min(UInt64(grown), maxNanoseconds)
     }
 
     private static func compactMessages(

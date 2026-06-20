@@ -105,17 +105,31 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
             while attempts < maxAttempts {
                 attempts += 1
                 do {
+                    try Task.checkCancellation()
                     let newStream = await factory()
+                    try Task.checkCancellation()
                     for try await event in newStream {
+                        try Task.checkCancellation()
                         continuation.yield(event)
                     }
                     // Stream completed successfully
                     continuation.finish()
                     return
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
+                    return
                 } catch {
                     lastError = error
                     if attempts < maxAttempts, delay != .zero {
-                        try? await Task.sleep(for: delay)
+                        do {
+                            try await Task.sleep(for: delay)
+                        } catch is CancellationError {
+                            continuation.finish(throwing: CancellationError())
+                            return
+                        } catch {
+                            continuation.finish(throwing: error)
+                            return
+                        }
                     }
                 }
             }
@@ -182,7 +196,7 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
     /// Example:
     /// ```swift
     /// let filtered = stream.filter { event in
-    ///     if case .thinking(let thought) = event {
+    ///     if case .output(.thinking(thought: let thought)) = event {
     ///         return thought.count > 10
     ///     }
     ///     return false
@@ -209,7 +223,7 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
     /// Example:
     /// ```swift
     /// let uppercased = stream.map { event -> String in
-    ///     if case .thinking(let thought) = event {
+    ///     if case .output(.thinking(thought: let thought)) = event {
     ///         return thought.uppercased()
     ///     }
     ///     return ""
@@ -296,7 +310,7 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
     /// Example:
     /// ```swift
     /// let firstThinking = try await stream.first { event in
-    ///     if case .thinking = event { return true }
+    ///     if case .output(.thinking) = event { return true }
     ///     return false
     /// }
     /// ```
@@ -341,7 +355,7 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
     /// Example:
     /// ```swift
     /// let combined = try await stream.reduce("") { acc, event in
-    ///     if case .thinking(let thought) = event {
+    ///     if case .output(.thinking(thought: let thought)) = event {
     ///         return acc + thought
     ///     }
     ///     return acc
@@ -424,8 +438,21 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
     func timeout(after duration: Duration) -> AsyncThrowingStream<AgentEvent, Error> {
         let (stream, continuation): (AsyncThrowingStream<AgentEvent, Error>, AsyncThrowingStream<AgentEvent, Error>.Continuation) = StreamHelper.makeStream()
 
+        // Box so the timeout task can cancel the processing task after it's created.
+        // Without this, when the timeout fires the upstream keeps consuming tokens / making
+        // network requests until it terminates naturally, even though the consumer has been
+        // told the stream timed out.
+        let processingTaskRef = TimeoutTaskRef()
+
         let timeoutTask = Task {
+            // Use `try` (not `try?`): if `processingTask` cancels this task because
+            // the upstream completed naturally first, the cancellation must propagate
+            // out of this Task body so the timeout side-effects (cancel processing,
+            // finish with timeout error) DO NOT run. With `try?`, cancellation would
+            // be swallowed and the body would race to emit a false-timeout error
+            // ahead of the upstream's natural `finish()`.
             try await Task.sleep(for: duration)
+            processingTaskRef.task?.cancel()
             continuation.finish(throwing: AgentError.timeout(duration: duration))
         }
 
@@ -441,6 +468,7 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
                 continuation.finish(throwing: error)
             }
         }
+        processingTaskRef.task = processingTask
 
         continuation.onTermination = { @Sendable _ in
             timeoutTask.cancel()
@@ -700,7 +728,7 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
     /// ```swift
     /// // Extract only thinking content as uppercase strings
     /// let thoughts = stream.compactMap { event -> String? in
-    ///     if case .thinking(let thought) = event {
+    ///     if case .output(.thinking(thought: let thought)) = event {
     ///         return thought.uppercased()
     ///     }
     ///     return nil
@@ -777,7 +805,7 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
     /// ```swift
     /// // Accumulate all thinking content
     /// for try await combined in stream.scan("") { acc, event in
-    ///     if case .thinking(let thought) = event {
+    ///     if case .output(.thinking(thought: let thought)) = event {
     ///         return acc + thought
     ///     }
     ///     return acc
@@ -797,6 +825,30 @@ public extension AsyncThrowingStream where Element == AgentEvent, Failure == Err
                 continuation.yield(accumulator)
             }
             continuation.finish()
+        }
+    }
+}
+
+// MARK: - TimeoutTaskRef
+
+/// A small Sendable reference cell that lets the timeout task cancel the upstream
+/// processing task after the latter has been constructed. Both fields are guarded
+/// by an NSLock — the box is created once per `timeout(after:)` call and discarded
+/// when the stream finishes, so contention is bounded to the two writers.
+private final class TimeoutTaskRef: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _task: Task<Void, Never>?
+
+    var task: Task<Void, Never>? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _task
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _task = newValue
         }
     }
 }
@@ -905,9 +957,9 @@ public enum AgentEventStream {
     /// Example:
     /// ```swift
     /// let stream = AgentEventStream.from([
-    ///     .started(input: "test"),
-    ///     .thinking(thought: "Processing..."),
-    ///     .completed(result: result)
+    ///     .lifecycle(.started(input: "test")),
+    ///     .output(.thinking(thought: "Processing...")),
+    ///     .lifecycle(.completed(result: result))
     /// ])
     /// ```
     public static func from(_ events: [AgentEvent]) -> AsyncThrowingStream<AgentEvent, Error> {

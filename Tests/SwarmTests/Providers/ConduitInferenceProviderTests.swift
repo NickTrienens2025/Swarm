@@ -1,8 +1,4 @@
-#if canImport(ConduitAdvanced)
-import ConduitAdvanced
-#else
 import Conduit
-#endif
 import Testing
 @testable import Swarm
 
@@ -71,4 +67,5 @@ struct ConduitInferenceProviderBridgeTests {
         #expect(parsed.arguments["query"]?.stringValue == "swift")
         #expect(parsed.arguments["limit"]?.intValue == 3)
     }
+
 }

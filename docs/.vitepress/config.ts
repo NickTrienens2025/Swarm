@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Swarm',
   description: 'Multi-agent orchestration for Swift — built for production, not demos.',
-  base: '/Swarm/',
+  base: '/',
 
   head: [
     // Satoshi from Fontshare
@@ -16,12 +16,21 @@ export default defineConfig({
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
   ],
 
-  ignoreDeadLinks: true,
+  ignoreDeadLinks: false,
   appearance: 'dark',
   lastUpdated: true,
   cleanUrls: true,
 
-  // Exclude internal planning docs that contain raw angle brackets
+  markdown: {
+    // Register `svg` as an alias for `xml` so ` ```svg ` fences highlight cleanly
+    // instead of falling back to `txt` and emitting build-time warnings.
+    languageAlias: {
+      svg: 'xml',
+    },
+  },
+
+  // Exclude internal planning docs, historical reports, and archival generated
+  // references that are retained in the repository but are not website docs.
   srcExclude: [
     '**/BEST_PRACTICES.md',
     '**/DSL_IMPLEMENTATION_PROGRESS.md',
@@ -31,7 +40,17 @@ export default defineConfig({
     '**/migration-plan_*.md',
     '**/subagent-context-findings.md',
     '**/MultiProvider.md',
+    '**/reference/api-quality-assessment.md',
+    '**/reference/docc-audit-report.md',
+    '**/reference/docs-folder-audit-report.md',
+    '**/reference/documentation-gap-report.md',
+    '**/reference/documentation-validation-report.md',
+    '**/reference/durable-runtime-hardening.md',
+    '**/swarm-features.md',
+    '**/swarm-complete-reference.md',
+    '**/reference/documentation-improvement-plan.md',
     '**/plans/**',
+    '**/superpowers/**',
     '**/validation/**',
     '**/work-packages/**',
   ],
@@ -61,7 +80,8 @@ export default defineConfig({
           text: 'API Reference',
           items: [
             { text: 'Overview', link: '/reference/overview' },
-            { text: 'Complete Reference', link: '/swarm-complete-reference' },
+            { text: 'Front-Facing API', link: '/reference/front-facing-api' },
+            { text: 'API Catalog', link: '/reference/api-catalog' },
           ]
         },
       ],
@@ -70,7 +90,8 @@ export default defineConfig({
           text: 'API Reference',
           items: [
             { text: 'Overview', link: '/reference/overview' },
-            { text: 'Complete Reference', link: '/swarm-complete-reference' },
+            { text: 'Front-Facing API', link: '/reference/front-facing-api' },
+            { text: 'API Catalog', link: '/reference/api-catalog' },
           ]
         },
       ],

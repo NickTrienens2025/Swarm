@@ -1,9 +1,9 @@
 # Swarm Public API Catalog
 
-Generated from `Sources/Swarm/` on 2026-03-14.
+Generated from `Sources/Swarm/` on 2026-04-30; source-verified and refreshed for high-risk public rows on 2026-05-18.
 
 - Scope: all `.swift` files under `Sources/Swarm/`, excluding `Internal/GraphRuntime/`
-- Source files scanned: 134
+- Source files scanned: 157
 - Public/open symbols cataloged: 2423
 
 ## 1. Swarm (entry point)
@@ -12,10 +12,10 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 
 | Line | Kind | Access | Name | Signature |
 |------|------|--------|------|-----------|
-| 50 | enum | public | Swarm | `public enum Swarm` |
-| 52 | var | public | Swarm.version | `public static let version: String` |
-| 55 | var | public | Swarm.minimumMacOSVersion | `public static let minimumMacOSVersion: String` |
-| 58 | var | public | Swarm.minimumiOSVersion | `public static let minimumiOSVersion: String` |
+| 42 | enum | public | Swarm | `public enum Swarm` |
+| 44 | var | public | Swarm.version | `public static let version: String` |
+| 47 | var | public | Swarm.minimumMacOSVersion | `public static let minimumMacOSVersion: String` |
+| 50 | var | public | Swarm.minimumiOSVersion | `public static let minimumiOSVersion: String` |
 
 ## 2. Core
 
@@ -257,13 +257,6 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 | 210 | var | public | AgentResult.description | `public var description: String { get }` |
 | 227 | var | public | AgentResult.runtimeEngine | `public var runtimeEngine: String? { get }` |
 
-### Core/AgentRuntime+Identity.swift
-
-| Line | Kind | Access | Name | Signature |
-|------|------|--------|------|-----------|
-| 27 | protocol | public | AgentRuntimeIdentifiable | `public protocol AgentRuntimeIdentifiable : Sendable` |
-| 32 | var | public | AgentRuntimeIdentifiable.runtimeIdentity | `public var runtimeIdentity: String { get }` |
-
 ### Core/AgentRuntime.swift
 
 | Line | Kind | Access | Name | Signature |
@@ -356,16 +349,6 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 | 486 | var | public | InferenceResponse.usage | `public let usage: TokenUsage?` |
 | 489 | var | public | InferenceResponse.hasToolCalls | `public var hasToolCalls: Bool { get }` |
 | 499 | func | public | InferenceResponse.init(content:toolCalls:finishReason:usage:) | `public init(content: String? = nil, toolCalls: [InferenceResponse.ParsedToolCall] = [], finishReason: InferenceResponse.FinishReason = .completed, usage: TokenUsage? = nil)` |
-
-### Core/CallableAgent.swift
-
-| Line | Kind | Access | Name | Signature |
-|------|------|--------|------|-----------|
-| 21 | struct | public | CallableAgent | `public @dynamicCallable struct CallableAgent` |
-| 26 | func | public | CallableAgent.init(_:) | `public init(_ agent: any AgentRuntime)` |
-| 33 | func | public | CallableAgent.dynamicallyCall(withArguments:) | `public func dynamicallyCall(withArguments args: [String]) async throws -> AgentResult` |
-| 41 | func | public | CallableAgent.dynamicallyCall(withKeywordArguments:) | `public func dynamicallyCall(withKeywordArguments args: KeyValuePairs<String, String>) async throws -> AgentResult` |
-| 58 | func | public | AgentRuntime.callAsFunction(_:) | `public func callAsFunction(_ input: String) async throws -> AgentResult` |
 
 ### Core/CircularBuffer.swift
 
@@ -1283,53 +1266,6 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 | 26 | func | public | AnyJSONToolAdapter.execute(arguments:) | `public func execute(arguments: [String : SendableValue]) async throws -> SendableValue` |
 | 54 | func | public | Tool.asAnyJSONTool() | `public func asAnyJSONTool() -> AnyJSONToolAdapter<Self>` |
 
-### Tools/ToolChainBuilder.swift
-
-| Line | Kind | Access | Name | Signature |
-|------|------|--------|------|-----------|
-| 38 | @resultBuilder | public | ToolChainBuilder | `public @resultBuilder struct ToolChainBuilder` |
-| 40 | func | public | ToolChainBuilder.buildBlock(_:) | `public static func buildBlock(_ steps: any ToolChainStep...) -> [any ToolChainStep]` |
-| 45 | func | public | ToolChainBuilder.buildBlock() | `public static func buildBlock() -> [any ToolChainStep]` |
-| 50 | func | public | ToolChainBuilder.buildBlock(_:) | `public static func buildBlock(_ steps: [any ToolChainStep]...) -> [any ToolChainStep]` |
-| 55 | func | public | ToolChainBuilder.buildOptional(_:) | `public static func buildOptional(_ component: [any ToolChainStep]?) -> [any ToolChainStep]` |
-| 60 | func | public | ToolChainBuilder.buildEither(first:) | `public static func buildEither(first component: [any ToolChainStep]) -> [any ToolChainStep]` |
-| 65 | func | public | ToolChainBuilder.buildEither(second:) | `public static func buildEither(second component: [any ToolChainStep]) -> [any ToolChainStep]` |
-| 70 | func | public | ToolChainBuilder.buildArray(_:) | `public static func buildArray(_ components: [[any ToolChainStep]]) -> [any ToolChainStep]` |
-| 75 | func | public | ToolChainBuilder.buildExpression(_:) | `public static func buildExpression(_ tool: any AnyJSONTool) -> any ToolChainStep` |
-| 80 | func | public | ToolChainBuilder.buildExpression(_:) | `public static func buildExpression<T>(_ tool: T) -> any ToolChainStep where T : Tool` |
-| 85 | func | public | ToolChainBuilder.buildExpression(_:) | `public static func buildExpression(_ step: any ToolChainStep) -> any ToolChainStep` |
-| 90 | func | public | ToolChainBuilder.buildLimitedAvailability(_:) | `public static func buildLimitedAvailability(_ component: [any ToolChainStep]) -> [any ToolChainStep]` |
-| 95 | func | public | ToolChainBuilder.buildFinalResult(_:) | `public static func buildFinalResult(_ component: [any ToolChainStep]) -> [any ToolChainStep]` |
-| 114 | protocol | public | ToolChainStep | `public protocol ToolChainStep : Sendable` |
-| 120 | func | public | ToolChainStep.execute(input:) | `public func execute(input: SendableValue) async throws -> SendableValue` |
-| 135 | func | public | AnyJSONTool.execute(input:) | `public mutating func execute(input: SendableValue) async throws -> SendableValue` |
-| 158 | struct | public | ToolStep | `public struct ToolStep` |
-| 166 | func | public | ToolStep.init(_:) | `public init(_ tool: any AnyJSONTool)` |
-| 184 | func | public | ToolStep.retry(count:delay:) | `public func retry(count: Int, delay: Duration = .seconds(1)) -> ToolStep` |
-| 200 | func | public | ToolStep.timeout(_:) | `public func timeout(_ duration: Duration) -> ToolStep` |
-| 216 | func | public | ToolStep.fallback(to:) | `public func fallback(to tool: any AnyJSONTool) -> ToolStep` |
-| 233 | func | public | ToolStep.execute(input:) | `public func execute(input: SendableValue) async throws -> SendableValue` |
-| 346 | struct | public | ToolTransform | `public struct ToolTransform` |
-| 354 | func | public | ToolTransform.init(_:) | `public init(_ transform: @escaping (SendableValue) async throws -> SendableValue)` |
-| 365 | func | public | ToolTransform.execute(input:) | `public func execute(input: SendableValue) async throws -> SendableValue` |
-| 386 | struct | public | ToolFilter | `public struct ToolFilter` |
-| 396 | func | public | ToolFilter.init(_:defaultValue:) | `public init(_ predicate: @escaping (SendableValue) async throws -> Bool, defaultValue: SendableValue = .null)` |
-| 411 | func | public | ToolFilter.execute(input:) | `public func execute(input: SendableValue) async throws -> SendableValue` |
-| 436 | struct | public | ToolConditional | `public struct ToolConditional` |
-| 447 | func | public | ToolConditional.init(if:then:else:) | `public init(if condition: @escaping (SendableValue) async throws -> Bool, then thenStep: any ToolChainStep, else elseStep: (any ToolChainStep)? = nil)` |
-| 464 | func | public | ToolConditional.execute(input:) | `public func execute(input: SendableValue) async throws -> SendableValue` |
-| 501 | struct | public | ToolChain | `public struct ToolChain` |
-| 509 | func | public | ToolChain.init(_:) | `public init(@ToolChainBuilder _ content: () -> [any ToolChainStep])` |
-| 520 | func | public | ToolChain.execute(with:) | `public func execute(with arguments: [String : SendableValue]) async throws -> SendableValue` |
-| 531 | func | public | ToolChain.execute(query:) | `public func execute(query: String) async throws -> SendableValue` |
-| 540 | func | public | ToolChain.execute(_:) | `public func execute(_ input: SendableValue) async throws -> SendableValue` |
-| 563 | enum | public | ToolChainError | `public enum ToolChainError` |
-| 568 | var | public | ToolChainError.description | `public var description: String { get }` |
-| 581 | var | public | ToolChainError.errorDescription | `public var errorDescription: String? { get }` |
-| 586 | case | public | ToolChainError.timeout(toolName:duration:) | `public case timeout(toolName: String, duration: Duration)` |
-| 589 | case | public | ToolChainError.executionFailed(toolName:reason:) | `public case executionFailed(toolName: String, reason: String)` |
-| 592 | case | public | ToolChainError.emptyChain | `public case emptyChain` |
-
 ### Tools/ToolExecutionResult.swift
 
 | Line | Kind | Access | Name | Signature |
@@ -1458,19 +1394,6 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 | 80 | func | public | Memory.clear() | `public func clear() async` |
 | 96 | func | public | MemoryMessage.formatContext(_:tokenLimit:tokenEstimator:) | `public static func formatContext(_ messages: [MemoryMessage], tokenLimit: Int, tokenEstimator: any TokenEstimator = CharacterBasedTokenEstimator.shared) -> String` |
 | 128 | func | public | MemoryMessage.formatContext(_:tokenLimit:separator:tokenEstimator:) | `public static func formatContext(_ messages: [MemoryMessage], tokenLimit: Int, separator: String, tokenEstimator: any TokenEstimator = CharacterBasedTokenEstimator.shared) -> String` |
-| 169 | class | public | AnyMemory | `public actor AnyMemory` |
-| 172 | var | public | AnyMemory.count | `public var count: Int { get async }` |
-| 178 | var | public | AnyMemory.isEmpty | `public var isEmpty: Bool { get async }` |
-| 187 | func | public | AnyMemory.init(_:) | `public init(_ memory: some Memory)` |
-| 196 | func | public | AnyMemory.add(_:) | `public func add(_ message: MemoryMessage) async` |
-| 200 | func | public | AnyMemory.context(for:tokenLimit:) | `public func context(for query: String, tokenLimit: Int) async -> String` |
-| 204 | func | public | AnyMemory.allMessages() | `public func allMessages() async -> [MemoryMessage]` |
-| 208 | func | public | AnyMemory.clear() | `public func clear() async` |
-| 229 | func | public | AnyMemory.conversation(maxMessages:) | `public static func conversation(maxMessages: Int = 100) -> AnyMemory` |
-| 237 | func | public | AnyMemory.slidingWindow(maxTokens:) | `public static func slidingWindow(maxTokens: Int = 4000) -> AnyMemory` |
-| 248 | func | public | AnyMemory.vector(embeddingProvider:similarityThreshold:maxResults:) | `public static func vector(embeddingProvider: any EmbeddingProvider, similarityThreshold: Float = 0.7, maxResults: Int = 10) -> AnyMemory` |
-| 270 | func | public | AnyMemory.persistent(backend:conversationId:maxMessages:) | `public static func persistent(backend: any PersistentMemoryBackend = InMemoryBackend(), conversationId: String = UUID().uuidString, maxMessages: Int = 0) -> AnyMemory` |
-
 ### Memory/Backends/InMemoryBackend.swift
 
 | Line | Kind | Access | Name | Signature |
@@ -1624,70 +1547,6 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 | 62 | func | public | InferenceProviderSummarizer.summarize(_:maxTokens:) | `public func summarize(_ text: String, maxTokens: Int) async throws -> String` |
 | 115 | func | public | InferenceProviderSummarizer.conversationSummarizer(provider:) | `public static func conversationSummarizer(provider: any InferenceProvider) -> InferenceProviderSummarizer` |
 | 137 | func | public | InferenceProviderSummarizer.reasoningSummarizer(provider:) | `public static func reasoningSummarizer(provider: any InferenceProvider) -> InferenceProviderSummarizer` |
-
-### Memory/MemoryBuilder.swift
-
-| Line | Kind | Access | Name | Signature |
-|------|------|--------|------|-----------|
-| 26 | @resultBuilder | public | MemoryBuilder | `public @resultBuilder struct MemoryBuilder` |
-| 28 | func | public | MemoryBuilder.buildBlock(_:) | `public static func buildBlock(_ components: MemoryComponent...) -> [MemoryComponent]` |
-| 33 | func | public | MemoryBuilder.buildBlock(_:) | `public static func buildBlock(_ components: [MemoryComponent]...) -> [MemoryComponent]` |
-| 38 | func | public | MemoryBuilder.buildBlock() | `public static func buildBlock() -> [MemoryComponent]` |
-| 43 | func | public | MemoryBuilder.buildOptional(_:) | `public static func buildOptional(_ component: [MemoryComponent]?) -> [MemoryComponent]` |
-| 48 | func | public | MemoryBuilder.buildEither(first:) | `public static func buildEither(first component: [MemoryComponent]) -> [MemoryComponent]` |
-| 53 | func | public | MemoryBuilder.buildEither(second:) | `public static func buildEither(second component: [MemoryComponent]) -> [MemoryComponent]` |
-| 58 | func | public | MemoryBuilder.buildArray(_:) | `public static func buildArray(_ components: [[MemoryComponent]]) -> [MemoryComponent]` |
-| 63 | func | public | MemoryBuilder.buildExpression(_:) | `public static func buildExpression(_ expression: any Memory) -> [MemoryComponent]` |
-| 68 | func | public | MemoryBuilder.buildExpression(_:) | `public static func buildExpression(_ expression: MemoryComponent) -> [MemoryComponent]` |
-| 73 | func | public | MemoryBuilder.buildFinalResult(_:) | `public static func buildFinalResult(_ component: [MemoryComponent]) -> [MemoryComponent]` |
-| 81 | struct | public | MemoryComponent | `public struct MemoryComponent` |
-| 83 | var | public | MemoryComponent.memory | `public let memory: any Memory` |
-| 86 | var | public | MemoryComponent.priority | `public let priority: MemoryPriority` |
-| 89 | var | public | MemoryComponent.identifier | `public let identifier: String?` |
-| 97 | func | public | MemoryComponent.init(memory:priority:identifier:) | `public init(memory: any Memory, priority: MemoryPriority = .normal, identifier: String? = nil)` |
-| 108 | func | public | MemoryComponent.priority(_:) | `public func priority(_ priority: MemoryPriority) -> MemoryComponent` |
-| 113 | func | public | MemoryComponent.identified(by:) | `public func identified(by identifier: String) -> MemoryComponent` |
-| 121 | enum | public | MemoryPriority | `public enum MemoryPriority` |
-| 124 | func | public | MemoryPriority.<(_:_:) | `public static func < (lhs: MemoryPriority, rhs: MemoryPriority) -> Bool` |
-| 128 | case | public | MemoryPriority.low | `public case low` |
-| 129 | case | public | MemoryPriority.normal | `public case normal` |
-| 130 | case | public | MemoryPriority.high | `public case high` |
-| 136 | enum | public | RetrievalStrategy | `public enum RetrievalStrategy` |
-| 138 | case | public | RetrievalStrategy.recency | `public case recency` |
-| 141 | case | public | RetrievalStrategy.relevance | `public case relevance` |
-| 144 | case | public | RetrievalStrategy.hybrid(recencyWeight:relevanceWeight:) | `public case hybrid(recencyWeight: Double, relevanceWeight: Double)` |
-| 147 | case | public | RetrievalStrategy.custom(_:) | `public case custom(([MemoryMessage], String) async -> [MemoryMessage])` |
-| 153 | enum | public | MemoryMergeStrategy | `public enum MemoryMergeStrategy` |
-| 155 | case | public | MemoryMergeStrategy.concatenate | `public case concatenate` |
-| 158 | case | public | MemoryMergeStrategy.interleave | `public case interleave` |
-| 161 | case | public | MemoryMergeStrategy.deduplicate | `public case deduplicate` |
-| 164 | case | public | MemoryMergeStrategy.primaryOnly | `public case primaryOnly` |
-| 167 | case | public | MemoryMergeStrategy.custom(_:) | `public case custom(([[MemoryMessage]]) -> [MemoryMessage])` |
-| 193 | class | public | CompositeMemory | `public actor CompositeMemory` |
-| 197 | var | public | CompositeMemory.componentCount | `public nonisolated var componentCount: Int { get }` |
-| 201 | var | public | CompositeMemory.count | `public var count: Int { get async }` |
-| 211 | var | public | CompositeMemory.isEmpty | `public var isEmpty: Bool { get async }` |
-| 225 | func | public | CompositeMemory.init(tokenEstimator:_:) | `public init(tokenEstimator: any TokenEstimator = CharacterBasedTokenEstimator.shared, @MemoryBuilder _ content: () -> [MemoryComponent])` |
-| 242 | func | public | CompositeMemory.withRetrievalStrategy(_:) | `public nonisolated func withRetrievalStrategy(_ strategy: RetrievalStrategy) -> CompositeMemory` |
-| 255 | func | public | CompositeMemory.withMergeStrategy(_:) | `public nonisolated func withMergeStrategy(_ strategy: MemoryMergeStrategy) -> CompositeMemory` |
-| 268 | func | public | CompositeMemory.withTokenEstimator(_:) | `public nonisolated func withTokenEstimator(_ estimator: any TokenEstimator) -> CompositeMemory` |
-| 279 | func | public | CompositeMemory.add(_:) | `public func add(_ message: MemoryMessage) async` |
-| 285 | func | public | CompositeMemory.context(for:tokenLimit:) | `public func context(for query: String, tokenLimit: Int) async -> String` |
-| 290 | func | public | CompositeMemory.allMessages() | `public func allMessages() async -> [MemoryMessage]` |
-| 301 | func | public | CompositeMemory.clear() | `public func clear() async` |
-| 314 | func | public | CompositeMemory.store(_:) | `public func store(_ message: MemoryMessage) async` |
-| 322 | func | public | CompositeMemory.retrieve(limit:) | `public func retrieve(limit: Int) async -> [MemoryMessage]` |
-| 331 | func | public | CompositeMemory.buildContext(maxTokens:) | `public func buildContext(maxTokens: Int) async -> String` |
-| 466 | func | public | ConversationMemory.withSummarization(after:) | `public nonisolated func withSummarization(after _: Int) -> MemoryComponent` |
-| 476 | func | public | ConversationMemory.withTokenLimit(_:) | `public nonisolated func withTokenLimit(_: Int) -> MemoryComponent` |
-| 484 | func | public | ConversationMemory.priority(_:) | `public nonisolated func priority(_ priority: MemoryPriority) -> MemoryComponent` |
-| 496 | func | public | SlidingWindowMemory.withOverlapSize(_:) | `public nonisolated func withOverlapSize(_: Int) -> MemoryComponent` |
-| 504 | func | public | SlidingWindowMemory.priority(_:) | `public nonisolated func priority(_ priority: MemoryPriority) -> MemoryComponent` |
-| 512 | protocol | public | VectorMemoryConfigurable | `public protocol VectorMemoryConfigurable : Memory` |
-| 514 | func | public | VectorMemoryConfigurable.withSimilarityThreshold(_:) | `public func withSimilarityThreshold(_ threshold: Double) -> MemoryComponent` |
-| 517 | func | public | VectorMemoryConfigurable.withMaxResults(_:) | `public func withMaxResults(_ max: Int) -> MemoryComponent` |
-| 524 | func | public | VectorMemoryConfigurable.withSimilarityThreshold(_:) | `public nonisolated func withSimilarityThreshold(_: Double) -> MemoryComponent` |
-| 529 | func | public | VectorMemoryConfigurable.withMaxResults(_:) | `public nonisolated func withMaxResults(_: Int) -> MemoryComponent` |
 
 ### Memory/MemoryMessage.swift
 
@@ -2558,21 +2417,23 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 
 | Line | Kind | Access | Name | Signature |
 |------|------|--------|------|-----------|
-| 4 | struct | public | Workflow | `public struct Workflow` |
-| 12 | enum | public | Workflow.MergeStrategy | `public enum MergeStrategy` |
-| 15 | case | public | Workflow.MergeStrategy.structured | `public case structured` |
-| 18 | case | public | Workflow.MergeStrategy.indexed | `public case indexed` |
-| 20 | case | public | Workflow.MergeStrategy.first | `public case first` |
-| 22 | case | public | Workflow.MergeStrategy.custom(_:) | `public case custom(([AgentResult]) -> String)` |
-| 25 | func | public | Workflow.init() | `public init()` |
-| 27 | func | public | Workflow.step(_:) | `public func step(_ agent: some AgentRuntime) -> Workflow` |
-| 33 | func | public | Workflow.parallel(_:merge:) | `public func parallel(_ agents: [any AgentRuntime], merge: Workflow.MergeStrategy = .structured) -> Workflow` |
-| 39 | func | public | Workflow.route(_:) | `public func route(_ condition: @escaping (String) -> (any AgentRuntime)?) -> Workflow` |
-| 45 | func | public | Workflow.repeatUntil(maxIterations:_:) | `public func repeatUntil(maxIterations: Int = 100, _ condition: @escaping (AgentResult) -> Bool) -> Workflow` |
-| 55 | func | public | Workflow.timeout(_:) | `public func timeout(_ duration: Duration) -> Workflow` |
-| 61 | func | public | Workflow.observed(by:) | `public func observed(by observer: some AgentObserver) -> Workflow` |
-| 67 | func | public | Workflow.run(_:) | `public func run(_ input: String) async throws -> AgentResult` |
-| 73 | func | public | Workflow.stream(_:) | `public func stream(_ input: String) -> AsyncThrowingStream<AgentEvent, any Error>` |
+| 89 | struct | public | Workflow | `public struct Workflow` |
+| 125 | enum | public | Workflow.MergeStrategy | `public enum MergeStrategy` |
+| 140 | case | public | Workflow.MergeStrategy.structured | `public case structured` |
+| 157 | case | public | Workflow.MergeStrategy.indexed | `public case indexed` |
+| 173 | case | public | Workflow.MergeStrategy.first | `public case first` |
+| 193 | case | public | Workflow.MergeStrategy.custom(_:) | `public case custom(@Sendable ([AgentResult]) -> String)` |
+| 209 | func | public | Workflow.init() | `public init()` |
+| 229 | func | public | Workflow.step(_:) | `public func step(_ agent: some AgentRuntime) -> Workflow` |
+| 259 | func | public | Workflow.parallel(_:merge:customMergeSignature:fileID:line:) | `public func parallel(_ agents: [any AgentRuntime], merge: Workflow.MergeStrategy = .structured, customMergeSignature: String? = nil, fileID: StaticString = #fileID, line: UInt = #line) -> Workflow` |
+| 311 | func | public | Workflow.route(_:signature:fileID:line:) | `public func route(_ condition: @escaping @Sendable (String) -> (any AgentRuntime)?, signature: String? = nil, fileID: StaticString = #fileID, line: UInt = #line) -> Workflow` |
+| 326 | func | public | Workflow.route(signature:fileID:line:_:) | `public func route(signature: String, fileID: StaticString = #fileID, line: UInt = #line, _ condition: @escaping @Sendable (String) -> (any AgentRuntime)?) -> Workflow` |
+| 361 | func | public | Workflow.repeatUntil(maxIterations:_:signature:fileID:line:) | `public func repeatUntil(maxIterations: Int = 100, _ condition: @escaping @Sendable (AgentResult) -> Bool, signature: String? = nil, fileID: StaticString = #fileID, line: UInt = #line) -> Workflow` |
+| 381 | func | public | Workflow.repeatUntil(maxIterations:signature:fileID:line:_:) | `public func repeatUntil(maxIterations: Int = 100, signature: String, fileID: StaticString = #fileID, line: UInt = #line, _ condition: @escaping @Sendable (AgentResult) -> Bool) -> Workflow` |
+| 407 | func | public | Workflow.timeout(_:) | `public func timeout(_ duration: Duration) -> Workflow` |
+| 433 | func | public | Workflow.observed(by:) | `public func observed(by observer: some AgentObserver) -> Workflow` |
+| 459 | func | public | Workflow.run(_:) | `public func run(_ input: String) async throws -> AgentResult` |
+| 494 | func | public | Workflow.stream(_:) | `public func stream(_ input: String) -> AsyncThrowingStream<AgentEvent, Error>` |
 
 ### Workflow/WorkflowCheckpointing.swift
 
@@ -2770,56 +2631,41 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 
 | Line | Kind | Access | Name | Signature |
 |------|------|--------|------|-----------|
-| 12 | enum | public | LLM | `public enum LLM` |
-| 13 | case | public | LLM.openAI(_:) | `public case openAI(LLM.OpenAIConfig)` |
-| 14 | case | public | LLM.anthropic(_:) | `public case anthropic(LLM.AnthropicConfig)` |
-| 15 | case | public | LLM.openRouter(_:) | `public case openRouter(LLM.OpenRouterConfig)` |
-| 16 | case | public | LLM.ollama(_:) | `public case ollama(LLM.OllamaConfig)` |
-| 20 | func | public | LLM.openAI(apiKey:model:) | `public static func openAI(apiKey: String, model: String = "gpt-4o-mini") -> LLM` |
-| 27 | func | public | LLM.openAI(key:model:) | `public static func openAI(key: String, model: String = "gpt-4o-mini") -> LLM` |
-| 34 | func | public | LLM.anthropic(apiKey:model:) | `public static func anthropic(apiKey: String, model: String = AnthropicModelID.claude35Sonnet.rawValue) -> LLM` |
-| 41 | func | public | LLM.anthropic(key:model:) | `public static func anthropic(key: String, model: String = AnthropicModelID.claude35Sonnet.rawValue) -> LLM` |
-| 48 | func | public | LLM.openRouter(apiKey:model:) | `public static func openRouter(apiKey: String, model: String = "anthropic/claude-3.5-sonnet") -> LLM` |
-| 55 | func | public | LLM.openRouter(key:model:) | `public static func openRouter(key: String, model: String = "anthropic/claude-3.5-sonnet") -> LLM` |
-| 65 | func | public | LLM.advanced(_:) | `public func advanced(_ update: (inout LLM.AdvancedOptions) -> Void) -> LLM` |
-| 84 | func | public | LLM.generate(prompt:options:) | `public func generate(prompt: String, options: InferenceOptions) async throws -> String` |
-| 88 | func | public | LLM.stream(prompt:options:) | `public func stream(prompt: String, options: InferenceOptions) -> AsyncThrowingStream<String, any Error>` |
-| 92 | func | public | LLM.generateWithToolCalls(prompt:tools:options:) | `public func generateWithToolCalls(prompt: String, tools: [ToolSchema], options: InferenceOptions) async throws -> InferenceResponse` |
-| 155 | func | public | LLM.streamWithToolCalls(prompt:tools:options:) | `public func streamWithToolCalls(prompt: String, tools: [ToolSchema], options: InferenceOptions) -> AsyncThrowingStream<InferenceStreamUpdate, any Error>` |
-| 173 | func | public | InferenceProvider.openAI(apiKey:model:) | `public static func openAI(apiKey: String, model: String = "gpt-4o-mini") -> LLM` |
-| 177 | func | public | InferenceProvider.openAI(key:model:) | `public static func openAI(key: String, model: String = "gpt-4o-mini") -> LLM` |
-| 181 | func | public | InferenceProvider.anthropic(apiKey:model:) | `public static func anthropic(apiKey: String, model: String = AnthropicModelID.claude35Sonnet.rawValue) -> LLM` |
-| 185 | func | public | InferenceProvider.anthropic(key:model:) | `public static func anthropic(key: String, model: String = AnthropicModelID.claude35Sonnet.rawValue) -> LLM` |
-| 189 | func | public | InferenceProvider.openRouter(apiKey:model:) | `public static func openRouter(apiKey: String, model: String = "anthropic/claude-3.5-sonnet") -> LLM` |
-| 193 | func | public | InferenceProvider.openRouter(key:model:) | `public static func openRouter(key: String, model: String = "anthropic/claude-3.5-sonnet") -> LLM` |
-| 202 | func | public | InferenceProvider.ollama(_:settings:) | `public static func ollama(_ model: String, settings: OllamaSettings = .default) -> LLM` |
-| 210 | struct | public | LLM.OpenAIConfig | `public struct OpenAIConfig` |
-| 211 | var | public | LLM.OpenAIConfig.apiKey | `public var apiKey: String` |
-| 212 | var | public | LLM.OpenAIConfig.model | `public var model: String` |
-| 213 | var | public | LLM.OpenAIConfig.advanced | `public var advanced: LLM.AdvancedOptions` |
-| 215 | func | public | LLM.OpenAIConfig.init(apiKey:model:) | `public init(apiKey: String, model: String)` |
-| 221 | struct | public | LLM.AnthropicConfig | `public struct AnthropicConfig` |
-| 222 | var | public | LLM.AnthropicConfig.apiKey | `public var apiKey: String` |
-| 223 | var | public | LLM.AnthropicConfig.model | `public var model: String` |
-| 224 | var | public | LLM.AnthropicConfig.advanced | `public var advanced: LLM.AdvancedOptions` |
-| 226 | func | public | LLM.AnthropicConfig.init(apiKey:model:) | `public init(apiKey: String, model: String)` |
-| 232 | struct | public | LLM.OpenRouterConfig | `public struct OpenRouterConfig` |
-| 233 | var | public | LLM.OpenRouterConfig.apiKey | `public var apiKey: String` |
-| 234 | var | public | LLM.OpenRouterConfig.model | `public var model: String` |
-| 235 | var | public | LLM.OpenRouterConfig.advanced | `public var advanced: LLM.AdvancedOptions` |
-| 237 | func | public | LLM.OpenRouterConfig.init(apiKey:model:) | `public init(apiKey: String, model: String)` |
-| 243 | struct | public | LLM.AdvancedOptions | `public struct AdvancedOptions` |
-| 244 | var | public | LLM.AdvancedOptions.default | `public static let `default`: LLM.AdvancedOptions` |
-| 249 | var | public | LLM.AdvancedOptions.openRouter | `public var openRouter: LLM.OpenRouterOptions` |
-| 251 | func | public | LLM.AdvancedOptions.init(openRouter:) | `public init(openRouter: LLM.OpenRouterOptions = .default)` |
-| 262 | struct | public | LLM.OpenRouterOptions | `public struct OpenRouterOptions` |
-| 263 | var | public | LLM.OpenRouterOptions.default | `public static let `default`: LLM.OpenRouterOptions` |
-| 265 | var | public | LLM.OpenRouterOptions.routing | `public var routing: OpenRouterRouting?` |
-| 267 | func | public | LLM.OpenRouterOptions.init(routing:) | `public init(routing: OpenRouterRouting? = nil)` |
-| 273 | struct | public | LLM.OllamaConfig | `public struct OllamaConfig` |
-| 275 | var | public | LLM.OllamaConfig.model | `public var model: String` |
-| 277 | var | public | LLM.OllamaConfig.settings | `public var settings: OllamaSettings` |
-| 279 | func | public | LLM.OllamaConfig.init(model:settings:) | `public init(model: String, settings: OllamaSettings = .default)` |
+| 12 | struct | public | LLM | `public struct LLM` |
+| 50 | func | public | LLM.openAI(apiKey:model:) | `public static func openAI(apiKey: String, model: String = "gpt-4o-mini") -> LLM` |
+| 57 | func | public | LLM.openAI(key:model:) | `public static func openAI(key: String, model: String = "gpt-4o-mini") -> LLM` |
+| 64 | func | public | LLM.anthropic(apiKey:model:) | `public static func anthropic(apiKey: String, model: String = "claude-3-5-sonnet-20241022") -> LLM` |
+| 71 | func | public | LLM.anthropic(key:model:) | `public static func anthropic(key: String, model: String = "claude-3-5-sonnet-20241022") -> LLM` |
+| 78 | func | public | LLM.openRouter(apiKey:model:) | `public static func openRouter(apiKey: String, model: String = "anthropic/claude-3.5-sonnet") -> LLM` |
+| 85 | func | public | LLM.openRouter(key:model:) | `public static func openRouter(key: String, model: String = "anthropic/claude-3.5-sonnet") -> LLM` |
+| 101 | func | public | LLM.minimax(apiKey:model:) | `public static func minimax(apiKey: String, model: String = "minimax-01") -> LLM` |
+| 108 | func | public | LLM.minimax(key:model:) | `public static func minimax(key: String, model: String = "minimax-01") -> LLM` |
+| 131 | func | public | LLM.ollama(_:configure:) | `public static func ollama(_ model: String, configure: ((inout OllamaSettings) -> Void)? = nil) -> LLM` |
+| 152 | func | public | LLM.openRouter(apiKey:model:configure:) | `public static func openRouter(apiKey: String, model: String = "anthropic/claude-3.5-sonnet", configure: (inout OpenRouterRouting) -> Void) -> LLM` |
+| 168 | func | public | LLM.mlx(_:) | `public static func mlx(_ model: String) -> LLM` |
+| 175 | func | public | LLM.mlxLocal(_:) | `public static func mlxLocal(_ path: String) -> LLM` |
+| 182 | func | public | LLM.generate(prompt:options:) | `public func generate(prompt: String, options: InferenceOptions) async throws -> String` |
+| 186 | func | public | LLM.stream(prompt:options:) | `public func stream(prompt: String, options: InferenceOptions) -> AsyncThrowingStream<String, any Error>` |
+| 190 | func | public | LLM.generateWithToolCalls(prompt:tools:options:) | `public func generateWithToolCalls(prompt: String, tools: [ToolSchema], options: InferenceOptions) async throws -> InferenceResponse` |
+| 296 | var | public | LLM.providerName | `public var providerName: String? { get }` |
+| 315 | var | public | LLM.modelName | `public var modelName: String? { get }` |
+| 339 | var | public | LLM.endpointURL | `public var endpointURL: URL? { get }` |
+| 368 | func | public | LLM.streamWithToolCalls(prompt:tools:options:) | `public func streamWithToolCalls(prompt: String, tools: [ToolSchema], options: InferenceOptions) -> AsyncThrowingStream<InferenceStreamUpdate, any Error>` |
+| 384 | var | public | LLM.capabilities | `public var capabilities: InferenceProviderCapabilities { get }` |
+| 395 | func | public | LLM.generate(messages:options:) | `public func generate(messages: [InferenceMessage], options: InferenceOptions) async throws -> String` |
+| 403 | func | public | LLM.generateWithToolCalls(messages:tools:options:) | `public func generateWithToolCalls(messages: [InferenceMessage], tools: [ToolSchema], options: InferenceOptions) async throws -> InferenceResponse` |
+| 425 | func | public | LLM.stream(messages:options:) | `public func stream(messages: [InferenceMessage], options: InferenceOptions) -> AsyncThrowingStream<String, any Error>` |
+| 438 | func | public | LLM.streamWithToolCalls(messages:tools:options:) | `public func streamWithToolCalls(messages: [InferenceMessage], tools: [ToolSchema], options: InferenceOptions) -> AsyncThrowingStream<InferenceStreamUpdate, any Error>` |
+| 463 | func | public | InferenceProvider.openAI(apiKey:model:) | `public static func openAI(apiKey: String, model: String = "gpt-4o-mini") -> LLM` |
+| 467 | func | public | InferenceProvider.openAI(key:model:) | `public static func openAI(key: String, model: String = "gpt-4o-mini") -> LLM` |
+| 471 | func | public | InferenceProvider.anthropic(apiKey:model:) | `public static func anthropic(apiKey: String, model: String = "claude-3-5-sonnet-20241022") -> LLM` |
+| 475 | func | public | InferenceProvider.anthropic(key:model:) | `public static func anthropic(key: String, model: String = "claude-3-5-sonnet-20241022") -> LLM` |
+| 479 | func | public | InferenceProvider.openRouter(apiKey:model:) | `public static func openRouter(apiKey: String, model: String = "anthropic/claude-3.5-sonnet") -> LLM` |
+| 483 | func | public | InferenceProvider.openRouter(key:model:) | `public static func openRouter(key: String, model: String = "anthropic/claude-3.5-sonnet") -> LLM` |
+| 487 | func | public | InferenceProvider.minimax(apiKey:model:) | `public static func minimax(apiKey: String, model: String = "minimax-01") -> LLM` |
+| 491 | func | public | InferenceProvider.minimax(key:model:) | `public static func minimax(key: String, model: String = "minimax-01") -> LLM` |
+| 511 | func | public | InferenceProvider.ollama(_:configure:) | `public static func ollama(_ model: String, configure: ((inout OllamaSettings) -> Void)? = nil) -> LLM` |
+| 530 | func | public | InferenceProvider.openRouter(apiKey:model:configure:) | `public static func openRouter(apiKey: String, model: String = "anthropic/claude-3.5-sonnet", configure: (inout OpenRouterRouting) -> Void) -> LLM` |
 
 ### Providers/Conduit/OllamaSettings.swift
 
@@ -3021,28 +2867,29 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 
 | Line | Kind | Access | Name | Signature |
 |------|------|--------|------|-----------|
-| 95 | macro | public | Tool(_:) | `public @attached(member, names: named(name), named(description), named(parameters), named(init), named(execute), named(_userExecute)) @attached(extension, conformances: AnyJSONTool, Sendable) macro Tool(_ description: String)` |
-| 142 | macro | public | Parameter(_:default:oneOf:) | `public @attached(peer) macro Parameter(_ description: String, default defaultValue: Any? = nil, oneOf options: [String]? = nil)` |
-| 183 | macro | public | AgentActor(instructions:generateBuilder:) | `public @attached(member, names: named(tools), named(instructions), named(configuration), named(memory), named(inferenceProvider), named(tracer), named(_memory), named(_inferenceProvider), named(_tracer), named(isCancelled), named(init), named(run), named(stream), named(cancel), named(Builder)) @attached(extension, conformances: AgentRuntime) macro AgentActor(instructions: String, generateBuilder: Bool = true)` |
-| 250 | macro | public | AgentActor(_:) | `public @attached(member, names: named(tools), named(instructions), named(configuration), named(memory), named(inferenceProvider), named(tracer), named(_memory), named(_inferenceProvider), named(_tracer), named(isCancelled), named(init), named(run), named(stream), named(cancel), named(Builder)) @attached(extension, conformances: AgentRuntime) macro AgentActor(_ instructions: String)` |
-| 281 | macro | public | Traceable() | `public @attached(peer, names: named(executeWithTracing)) macro Traceable()` |
-| 309 | macro | public | Prompt(_:) | `public @freestanding(expression) macro Prompt(_ content: String) -> PromptString` |
-| 320 | struct | public | PromptString | `public struct PromptString` |
-| 323 | var | public | PromptString.content | `public let content: String` |
-| 326 | var | public | PromptString.interpolations | `public let interpolations: [String]` |
-| 329 | var | public | PromptString.description | `public var description: String { get }` |
-| 332 | func | public | PromptString.init(content:interpolations:) | `public init(content: String, interpolations: [String] = [])` |
-| 338 | func | public | PromptString.init(stringLiteral:) | `public init(stringLiteral value: String)` |
-| 344 | func | public | PromptString.init(_:) | `public init(_ string: String)` |
-| 417 | macro | public | Builder() | `public @attached(member, names: arbitrary) macro Builder()` |
-| 423 | struct | public | PromptString.StringInterpolation | `public struct StringInterpolation` |
-| 426 | func | public | PromptString.StringInterpolation.init(literalCapacity:interpolationCount:) | `public init(literalCapacity: Int, interpolationCount: Int)` |
-| 431 | func | public | PromptString.StringInterpolation.appendLiteral(_:) | `public mutating func appendLiteral(_ literal: String)` |
-| 435 | func | public | PromptString.StringInterpolation.appendInterpolation(_:) | `public mutating func appendInterpolation(_ value: some Any)` |
-| 440 | func | public | PromptString.StringInterpolation.appendInterpolation(_:) | `public mutating func appendInterpolation(_ value: String)` |
-| 445 | func | public | PromptString.StringInterpolation.appendInterpolation(_:) | `public mutating func appendInterpolation(_ value: Int)` |
-| 450 | func | public | PromptString.StringInterpolation.appendInterpolation(_:) | `public mutating func appendInterpolation(_ value: [String])` |
-| 461 | func | public | PromptString.init(stringInterpolation:) | `public init(stringInterpolation: PromptString.StringInterpolation)` |
+| 99 | macro | public | Tool(_:) | `public @attached(member, names: named(name), named(description), named(parameters), named(init), named(execute), named(_userExecute), named(Input), named(Output)) @attached(extension, conformances: Tool, Sendable) macro Tool(_ description: String)` |
+| 146 | macro | public | Parameter(_:default:oneOf:) | `public @attached(peer) macro Parameter(_ description: String, default defaultValue: Any? = nil, oneOf options: [String]? = nil)` |
+| 188 | macro | public | AgentActor(instructions:generateBuilder:) | `public @attached(member, names: named(tools), named(instructions), named(configuration), named(memory), named(inferenceProvider), named(tracer), named(_memory), named(_defaultMemory), named(resolvedMemory), named(makeDefaultMemory), named(_inferenceProvider), named(_tracer), named(isCancelled), named(init), named(run), named(stream), named(cancel), named(Builder)) @attached(extension, conformances: AgentRuntime) macro AgentActor(instructions: String, generateBuilder: Bool = true)` |
+| 256 | macro | public | AgentActor(_:) | `public @attached(member, names: named(tools), named(instructions), named(configuration), named(memory), named(inferenceProvider), named(tracer), named(_memory), named(_defaultMemory), named(resolvedMemory), named(makeDefaultMemory), named(_inferenceProvider), named(_tracer), named(isCancelled), named(init), named(run), named(stream), named(cancel), named(Builder)) @attached(extension, conformances: AgentRuntime) macro AgentActor(_ instructions: String)` |
+| 287 | macro | public | Traceable() | `public @attached(peer, names: named(executeWithTracing)) macro Traceable()` |
+| 315 | macro | public | Prompt(_:) | `public @freestanding(expression) macro Prompt(_ content: String) -> PromptString` |
+| 326 | struct | public | PromptString | `public struct PromptString` |
+| 329 | var | public | PromptString.content | `public let content: String` |
+| 332 | var | public | PromptString.interpolations | `public let interpolations: [String]` |
+| 335 | var | public | PromptString.description | `public var description: String { get }` |
+| 338 | func | public | PromptString.init(content:interpolations:) | `public init(content: String, interpolations: [String] = [])` |
+| 344 | func | public | PromptString.init(stringLiteral:) | `public init(stringLiteral value: String)` |
+| 350 | func | public | PromptString.init(_:) | `public init(_ string: String)` |
+| 395 | macro | public | Tool(_:_:) | `public @freestanding(expression) macro Tool(_ name: String, _ description: String)` |
+| 465 | macro | public | Builder() | `public @attached(member, names: arbitrary) macro Builder()` |
+| 471 | struct | public | PromptString.StringInterpolation | `public struct StringInterpolation` |
+| 474 | func | public | PromptString.StringInterpolation.init(literalCapacity:interpolationCount:) | `public init(literalCapacity: Int, interpolationCount: Int)` |
+| 479 | func | public | PromptString.StringInterpolation.appendLiteral(_:) | `public mutating func appendLiteral(_ literal: String)` |
+| 483 | func | public | PromptString.StringInterpolation.appendInterpolation(_:) | `public mutating func appendInterpolation(_ value: some Any)` |
+| 488 | func | public | PromptString.StringInterpolation.appendInterpolation(_:) | `public mutating func appendInterpolation(_ value: String)` |
+| 493 | func | public | PromptString.StringInterpolation.appendInterpolation(_:) | `public mutating func appendInterpolation(_ value: Int)` |
+| 498 | func | public | PromptString.StringInterpolation.appendInterpolation(_:) | `public mutating func appendInterpolation(_ value: [String])` |
+| 509 | func | public | PromptString.init(stringInterpolation:) | `public init(stringInterpolation: PromptString.StringInterpolation)` |
 
 ## 14. Extensions
 
@@ -3051,3 +2898,77 @@ Generated from `Sources/Swarm/` on 2026-03-14.
 | Line | Kind | Access | Name | Signature |
 |------|------|--------|------|-----------|
 | 27 | var | public | Duration.timeInterval | `public var timeInterval: TimeInterval { get }` |
+
+## 15. Companion Products
+
+The main catalog above is generated from `Sources/Swarm/`. The package also
+exports companion products with small public entry surfaces.
+
+### SwarmOpenTelemetry
+
+#### Sources/SwarmOpenTelemetry/OpenTelemetryInferenceProvider.swift
+
+| Line | Kind | Access | Name | Signature |
+|------|------|--------|------|-----------|
+| 13 | struct | public | OpenTelemetryInferenceProvider | `public struct OpenTelemetryInferenceProvider<Base: InferenceProvider>` |
+| 17 | func | public | OpenTelemetryInferenceProvider.init(_:tracer:captureContent:) | `public init(_ base: Base, tracer: any OpenTelemetryApi.Tracer = OpenTelemetry.instance.tracerProvider.get(instrumentationName: "swarm.llm", instrumentationVersion: nil), captureContent: Bool = false)` |
+| 30 | var | public | OpenTelemetryInferenceProvider.capabilities | `public var capabilities: InferenceProviderCapabilities { get }` |
+| 34 | var | public | OpenTelemetryInferenceProvider.providerName | `public var providerName: String? { get }` |
+| 38 | var | public | OpenTelemetryInferenceProvider.modelName | `public var modelName: String? { get }` |
+| 42 | var | public | OpenTelemetryInferenceProvider.endpointURL | `public var endpointURL: URL? { get }` |
+| 46 | func | public | OpenTelemetryInferenceProvider.generate(prompt:options:) | `public func generate(prompt: String, options: InferenceOptions) async throws -> String` |
+| 54 | func | public | OpenTelemetryInferenceProvider.stream(prompt:options:) | `public func stream(prompt: String, options: InferenceOptions) -> AsyncThrowingStream<String, Error>` |
+| 65 | func | public | OpenTelemetryInferenceProvider.generateWithToolCalls(prompt:tools:options:) | `public func generateWithToolCalls(prompt: String, tools: [ToolSchema], options: InferenceOptions) async throws -> InferenceResponse` |
+| 310 | func | public | InferenceProvider.instrumentedWithOpenTelemetry(tracer:captureContent:) | `public func instrumentedWithOpenTelemetry(tracer: any OpenTelemetryApi.Tracer = OpenTelemetry.instance.tracerProvider.get(instrumentationName: "swarm.llm", instrumentationVersion: nil), captureContent: Bool = false) -> some InferenceProvider` |
+
+#### Sources/SwarmOpenTelemetry/OpenTelemetryAgentRuntime.swift
+
+| Line | Kind | Access | Name | Signature |
+|------|------|--------|------|-----------|
+| 210 | func | public | AgentRuntime.instrumentedWithOpenTelemetry(tracer:llmTracer:spanName:captureContent:) | `public func instrumentedWithOpenTelemetry(tracer: any OpenTelemetryApi.Tracer = OpenTelemetry.instance.tracerProvider.get(instrumentationName: "swarm.agent", instrumentationVersion: nil), llmTracer: any OpenTelemetryApi.Tracer = OpenTelemetry.instance.tracerProvider.get(instrumentationName: "swarm.llm", instrumentationVersion: nil), spanName: String? = nil, captureContent: Bool = false) -> some AgentRuntime` |
+
+#### Sources/SwarmOpenTelemetry/SwarmTypeAliases.swift
+
+| Line | Kind | Access | Name | Signature |
+|------|------|--------|------|-----------|
+| 6 | typealias | public | SwarmRuntimeTracer | `public typealias SwarmRuntimeTracer = Tracer` |
+
+### SwarmMembrane
+
+#### Sources/SwarmMembrane/SwarmMembrane.swift
+
+| Line | Kind | Access | Name | Signature |
+|------|------|--------|------|-----------|
+| 1 | export | public | SwarmMembrane | `@_exported import Swarm` |
+
+`SwarmMembrane` is a re-export product. Its user-facing symbols are the public
+Membrane integration APIs cataloged in section 12 under
+`Sources/Swarm/Integration/Membrane/`.
+
+### SwarmMCP
+
+#### Sources/SwarmMCP/SwarmMCPServerService.swift
+
+| Line | Kind | Access | Name | Signature |
+|------|------|--------|------|-----------|
+| 6 | actor | public | SwarmMCPServerService | `public actor SwarmMCPServerService` |
+| 7 | struct | public | SwarmMCPServerService.Metrics | `public struct Metrics` |
+| 17 | func | public | SwarmMCPServerService.Metrics.init(...) | `public init(listToolsRequests: Int = 0, listedToolCount: Int = 0, callToolRequests: Int = 0, callToolSuccesses: Int = 0, callToolFailures: Int = 0, approvalRequiredCount: Int = 0, approvalRejectedCount: Int = 0, cumulativeCallToolLatencyMs: Double = 0)` |
+| 57 | func | public | SwarmMCPServerService.init(name:version:instructions:toolCatalog:toolExecutor:configuration:maxRequestsPerSecond:maxConcurrentRequests:) | `public init(name: String = "swarm-mcp-server", version: String = Swarm.version, instructions: String? = nil, toolCatalog: some SwarmMCPToolCatalog, toolExecutor: some SwarmMCPToolExecutor, configuration: Server.Configuration = .strict, maxRequestsPerSecond: Double = 10, maxConcurrentRequests: Int = 50)` |
+| 86 | func | public | SwarmMCPServerService.start(transport:initializeHook:) | `public func start(transport: any Transport, initializeHook: (@Sendable (Client.Info, Client.Capabilities) async throws -> Void)? = nil) async throws` |
+| 115 | func | public | SwarmMCPServerService.startStdio(initializeHook:) | `public func startStdio(initializeHook: (@Sendable (Client.Info, Client.Capabilities) async throws -> Void)? = nil) async throws` |
+| 123 | func | public | SwarmMCPServerService.stop() | `public func stop() async` |
+| 131 | func | public | SwarmMCPServerService.waitUntilCompleted() | `public func waitUntilCompleted() async` |
+| 136 | func | public | SwarmMCPServerService.snapshotMetrics() | `public func snapshotMetrics() -> Metrics` |
+
+#### Sources/SwarmMCP/SwarmMCPToolAdapter.swift
+
+| Line | Kind | Access | Name | Signature |
+|------|------|--------|------|-----------|
+| 5 | protocol | public | SwarmMCPToolCatalog | `public protocol SwarmMCPToolCatalog: Sendable` |
+| 11 | protocol | public | SwarmMCPToolExecutor | `public protocol SwarmMCPToolExecutor: Sendable` |
+| 17 | enum | public | SwarmMCPToolExecutionError | `public enum SwarmMCPToolExecutionError` |
+| 33 | actor | public | SwarmMCPToolRegistryAdapter | `public actor SwarmMCPToolRegistryAdapter` |
+| 36 | func | public | SwarmMCPToolRegistryAdapter.init(registry:) | `public init(registry: ToolRegistry)` |
+| 40 | func | public | SwarmMCPToolRegistryAdapter.listTools() | `public func listTools() async throws -> [ToolSchema]` |
+| 44 | func | public | SwarmMCPToolRegistryAdapter.executeTool(named:arguments:) | `public func executeTool(named toolName: String, arguments: [String: SendableValue]) async throws -> SendableValue` |

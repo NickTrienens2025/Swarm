@@ -23,8 +23,8 @@ features:
   - icon: "\U0001F6E1\uFE0F"
     title: Data Races Are Compile Errors
     details: Swift 6.2 StrictConcurrency on every target. Non-Sendable types crossing actor boundaries won't build.
-    link: /agents
-    linkText: See agent types
+    link: /reference/front-facing-api
+    linkText: See the API
 
   - icon: "\U0001F4BE"
     title: Workflows Survive Crashes
@@ -34,27 +34,27 @@ features:
 
   - icon: "\U0001F9E0"
     title: Semantic Memory -- On-Device
-    details: VectorMemory uses Accelerate SIMD for cosine similarity. No cloud API. No network call. Just fast local retrieval.
-    link: /memory
-    linkText: Memory systems
+    details: VectorMemory performs local similarity search; embedding privacy depends on the provider you configure.
+    link: /reference/front-facing-api
+    linkText: Memory factories
 
   - icon: "\U0001F50C"
     title: Any LLM, Same Code
     details: Foundation Models, Anthropic, OpenAI, Ollama, Gemini, MLX. Swap providers with `inferenceProvider:` at init.
-    link: /providers
+    link: /reference/front-facing-api
     linkText: Configure providers
 
   - icon: "\u26A1"
     title: Production Resilience
     details: Retry with 7 backoff strategies, circuit breakers, fallback agents, rate limiting, and per-step timeouts.
-    link: /resilience
+    link: /reference/overview
     linkText: Add resilience
 ---
 
 ## Install
 
 ```swift
-.package(url: "https://github.com/christopherkarani/Swarm.git", from: "0.5.0")
+.package(url: "https://github.com/christopherkarani/Swarm.git", from: "0.6.0")
 ```
 
 ## Quick Start
@@ -95,8 +95,8 @@ let result = try await Workflow()
 | Language | **Swift 6.2** | Python | Python |
 | Data race safety | **Compile-time** | Runtime | Runtime |
 | On-device LLM | **Foundation Models** | -- | -- |
-| Execution engine | **Compiled DAG** | Loop-based | Loop-based |
-| Crash recovery | **Auto checkpoints** | -- | Partial |
+| Execution model | **Typed `Workflow` graph** | Loop-based | Loop-based |
+| Crash recovery | **Explicit checkpoints** | -- | Partial |
 | Type-safe tools | **@Tool macro** | Decorators | Runtime |
 | Streaming | **AsyncThrowingStream** | Callbacks | Callbacks |
 | iOS / macOS | **First-class** | -- | -- |

@@ -509,6 +509,13 @@ private enum ToolArgumentProcessor {
         path: String,
         depth: Int = 0
     ) throws {
+        guard depth < maxDepth else {
+            throw AgentError.invalidToolArguments(
+                toolName: toolName,
+                reason: "Maximum nesting depth (\(maxDepth)) exceeded at path: \(path)"
+            )
+        }
+
         switch expected {
         case .any:
             return
@@ -584,6 +591,13 @@ private enum ToolArgumentProcessor {
         path: String,
         depth: Int = 0
     ) throws -> SendableValue {
+        guard depth < maxDepth else {
+            throw AgentError.invalidToolArguments(
+                toolName: toolName,
+                reason: "Maximum nesting depth (\(maxDepth)) exceeded at path: \(path)"
+            )
+        }
+
         switch expected {
         case .any:
             return value
@@ -1370,10 +1384,8 @@ public actor ToolRegistry {
     /// - Parameter tools: The initial tools to register.
     /// - Throws: ``ToolRegistryError/duplicateToolName`` if a tool with the same name already exists.
     public init(tools: [any AnyJSONTool]) throws {
+        try Self.validateUniqueToolNames(tools.map(\.name), existingNames: [])
         for tool in tools {
-            guard self.tools[tool.name] == nil else {
-                throw ToolRegistryError.duplicateToolName(name: tool.name)
-            }
             self.tools[tool.name] = tool
         }
     }
@@ -1383,11 +1395,9 @@ public actor ToolRegistry {
     /// - Parameter tools: The initial typed tools to register.
     /// - Throws: ``ToolRegistryError/duplicateToolName`` if a tool with the same name already exists.
     public init(tools: [some Tool]) throws {
+        try Self.validateUniqueToolNames(tools.map(\.name), existingNames: [])
         for tool in tools {
             let name = tool.name
-            guard self.tools[name] == nil else {
-                throw ToolRegistryError.duplicateToolName(name: name)
-            }
             self.tools[name] = AnyJSONToolAdapter(tool)
         }
     }
@@ -1420,11 +1430,9 @@ public actor ToolRegistry {
     /// - Parameter newTools: The typed tools to register.
     /// - Throws: ``ToolRegistryError/duplicateToolName`` if any tool name already exists.
     public func register(_ newTools: [some Tool]) throws {
+        try Self.validateUniqueToolNames(newTools.map(\.name), existingNames: Set(tools.keys))
         for tool in newTools {
             let name = tool.name
-            guard tools[name] == nil else {
-                throw ToolRegistryError.duplicateToolName(name: name)
-            }
             tools[name] = AnyJSONToolAdapter(tool)
         }
     }
@@ -1434,10 +1442,8 @@ public actor ToolRegistry {
     /// - Parameter newTools: The tools to register.
     /// - Throws: ``ToolRegistryError/duplicateToolName`` if any tool name already exists.
     public func register(_ newTools: [any AnyJSONTool]) throws {
+        try Self.validateUniqueToolNames(newTools.map(\.name), existingNames: Set(tools.keys))
         for tool in newTools {
-            guard tools[tool.name] == nil else {
-                throw ToolRegistryError.duplicateToolName(name: tool.name)
-            }
             tools[tool.name] = tool
         }
     }
@@ -1551,4 +1557,13 @@ public actor ToolRegistry {
     // MARK: Private
 
     private var tools: [String: any AnyJSONTool] = [:]
+
+    private static func validateUniqueToolNames(_ names: [String], existingNames: Set<String>) throws {
+        var seen = existingNames
+        for name in names {
+            guard seen.insert(name).inserted else {
+                throw ToolRegistryError.duplicateToolName(name: name)
+            }
+        }
+    }
 }

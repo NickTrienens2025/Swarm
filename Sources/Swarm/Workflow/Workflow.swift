@@ -87,10 +87,24 @@ import Foundation
 /// ### Durable Execution
 /// - ``durable``
 public struct Workflow: Sendable {
-    enum Step: @unchecked Sendable {
+    struct OpaqueBehaviorSignature: Sendable, Equatable {
+        let value: String
+
+        init(kind: String, explicit: String?, fileID: StaticString, line: UInt) {
+            let trimmed = explicit?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let identity = if let trimmed, !trimmed.isEmpty {
+                "explicit:\(workflowSignatureComponent(trimmed))"
+            } else {
+                "source:\(workflowSignatureComponent("\(fileID):\(line)"))"
+            }
+            value = "\(kind):\(identity)"
+        }
+    }
+
+    enum Step: Sendable {
         case single(any AgentRuntime)
-        case parallel([any AgentRuntime], merge: MergeStrategy)
-        case route(@Sendable (String) -> (any AgentRuntime)?)
+        case parallel([any AgentRuntime], merge: MergeStrategy, mergeBehaviorSignature: OpaqueBehaviorSignature?)
+        case route(OpaqueBehaviorSignature, @Sendable (String) -> (any AgentRuntime)?)
         case fallback(primary: any AgentRuntime, backup: any AgentRuntime, retries: Int)
     }
 
@@ -108,7 +122,7 @@ public struct Workflow: Sendable {
     /// - ``indexed``
     /// - ``first``
     /// - ``custom(_:)``
-    public enum MergeStrategy: @unchecked Sendable {
+    public enum MergeStrategy: Sendable {
         /// Merges results into a JSON object: `{"0": "output0", "1": "output1", ...}`.
         ///
         /// Use this strategy when downstream agents or tools need machine-parseable
@@ -227,6 +241,7 @@ public struct Workflow: Sendable {
     /// - Parameters:
     ///   - agents: An array of agents to execute in parallel.
     ///   - merge: The strategy for combining results. Defaults to `.structured`.
+    ///   - customMergeSignature: Optional stable durable identity to change when `.custom` merge behavior changes.
     /// - Returns: A new workflow with the added parallel step.
     ///
     /// ## Example
@@ -235,15 +250,36 @@ public struct Workflow: Sendable {
     /// // Analyze from multiple perspectives
     /// let result = try await Workflow()
     ///     .parallel(
-        ///         [technicalAgent, businessAgent, userAgent],
+    ///         [technicalAgent, businessAgent, userAgent],
     ///         merge: .indexed
     ///     )
     ///     .step(synthesizerAgent)
     ///     .run("Evaluate new feature proposal")
     /// ```
-    public func parallel(_ agents: [any AgentRuntime], merge: MergeStrategy = .structured) -> Workflow {
+    public func parallel(
+        _ agents: [any AgentRuntime],
+        merge: MergeStrategy = .structured,
+        customMergeSignature: String? = nil,
+        fileID: StaticString = #fileID,
+        line: UInt = #line
+    ) -> Workflow {
         var copy = self
-        copy.steps.append(.parallel(agents, merge: merge))
+        let mergeBehaviorSignature: OpaqueBehaviorSignature?
+        if case .custom = merge {
+            mergeBehaviorSignature = OpaqueBehaviorSignature(
+                kind: "customMerge",
+                explicit: customMergeSignature,
+                fileID: fileID,
+                line: line
+            )
+        } else {
+            mergeBehaviorSignature = nil
+        }
+        copy.steps.append(.parallel(
+            agents,
+            merge: merge,
+            mergeBehaviorSignature: mergeBehaviorSignature
+        ))
         return copy
     }
 
@@ -254,6 +290,7 @@ public struct Workflow: Sendable {
     ///
     /// - Parameter condition: A closure that receives the current input string
     ///   and returns the agent to execute, or `nil` if routing fails.
+    /// - Parameter signature: Optional stable durable identity to change when route behavior changes.
     /// - Returns: A new workflow with the added routing step.
     ///
     /// ## Example
@@ -271,10 +308,28 @@ public struct Workflow: Sendable {
     ///     }
     ///     .run("Review this code snippet")
     /// ```
-    public func route(_ condition: @escaping @Sendable (String) -> (any AgentRuntime)?) -> Workflow {
+    public func route(
+        _ condition: @escaping @Sendable (String) -> (any AgentRuntime)?,
+        signature: String? = nil,
+        fileID: StaticString = #fileID,
+        line: UInt = #line
+    ) -> Workflow {
         var copy = self
-        copy.steps.append(.route(condition))
+        copy.steps.append(.route(
+            OpaqueBehaviorSignature(kind: "route", explicit: signature, fileID: fileID, line: line),
+            condition
+        ))
         return copy
+    }
+
+    /// Adds a dynamic routing step with an explicit durable identity for the routing behavior.
+    public func route(
+        signature: String,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        _ condition: @escaping @Sendable (String) -> (any AgentRuntime)?
+    ) -> Workflow {
+        route(condition, signature: signature, fileID: fileID, line: line)
     }
 
     /// Configures the workflow to repeat until a condition is met.
@@ -288,6 +343,7 @@ public struct Workflow: Sendable {
     ///     Defaults to 100.
     ///   - condition: A closure that receives the ``AgentResult`` from each
     ///     iteration and returns `true` when the workflow should stop.
+    ///   - signature: Optional stable durable identity to change when repeat predicate behavior changes.
     /// - Returns: A new workflow configured with the repeat condition.
     ///
     /// ## Example
@@ -304,12 +360,32 @@ public struct Workflow: Sendable {
     /// ```
     public func repeatUntil(
         maxIterations: Int = 100,
-        _ condition: @escaping @Sendable (AgentResult) -> Bool
+        _ condition: @escaping @Sendable (AgentResult) -> Bool,
+        signature: String? = nil,
+        fileID: StaticString = #fileID,
+        line: UInt = #line
     ) -> Workflow {
         var copy = self
         copy.repeatCondition = condition
+        copy.repeatConditionSignature = OpaqueBehaviorSignature(
+            kind: "repeat",
+            explicit: signature,
+            fileID: fileID,
+            line: line
+        )
         copy.maxRepeatIterations = maxIterations
         return copy
+    }
+
+    /// Configures repetition with an explicit durable identity for the repeat predicate.
+    public func repeatUntil(
+        maxIterations: Int = 100,
+        signature: String,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        _ condition: @escaping @Sendable (AgentResult) -> Bool
+    ) -> Workflow {
+        repeatUntil(maxIterations: maxIterations, condition, signature: signature, fileID: fileID, line: line)
     }
 
     /// Sets a timeout for workflow execution.
@@ -404,10 +480,8 @@ public struct Workflow: Sendable {
     ///
     /// for try await event in stream {
     ///     switch event {
-    ///     case .lifecycle(.started):
-    ///         print("Workflow started")
-    ///     case .agentOutput(let output):
-    ///         print("Agent output: \(output)")
+    ///     case .lifecycle(.started(input: let input)):
+    ///         print("Workflow started: \(input)")
     ///     case .lifecycle(.completed(let result)):
     ///         print("Completed: \(result.output)")
     ///     case .lifecycle(.failed(let error)):
@@ -418,7 +492,7 @@ public struct Workflow: Sendable {
     /// }
     /// ```
     public func stream(_ input: String) -> AsyncThrowingStream<AgentEvent, Error> {
-        StreamHelper.makeTrackedStream { continuation in
+        StreamHelper.makeTrackedStream(bufferingPolicy: .unbounded) { continuation in
             continuation.yield(.lifecycle(.started(input: input)))
             do {
                 let result = try await run(input)
@@ -445,6 +519,7 @@ public struct Workflow: Sendable {
 
     var steps: [Step] = []
     var repeatCondition: (@Sendable (AgentResult) -> Bool)?
+    var repeatConditionSignature: OpaqueBehaviorSignature?
     var maxRepeatIterations = 100
     var timeoutDuration: Duration?
     var observer: (any AgentObserver)?
@@ -454,16 +529,40 @@ public struct Workflow: Sendable {
         _ operation: @escaping @Sendable () async throws -> AgentResult
     ) async throws -> AgentResult {
         if let timeoutDuration {
-            return try await withThrowingTaskGroup(of: AgentResult.self) { group in
-                group.addTask { try await operation() }
-                group.addTask {
-                    try await Task.sleep(for: timeoutDuration)
-                    throw AgentError.timeout(duration: timeoutDuration)
+            let coordinator = WorkflowTimedOperationCoordinator<AgentResult>()
+            let priority = Task.currentPriority
+            return try await withTaskCancellationHandler(
+                operation: {
+                    try await withCheckedThrowingContinuation { continuation in
+                        coordinator.install(continuation: continuation)
+
+                        let operationTask = Task.detached(priority: priority) {
+                            do {
+                                coordinator.finish(returning: try await operation())
+                            } catch {
+                                coordinator.finish(throwing: error)
+                            }
+                        }
+                        coordinator.setOperationTask(operationTask)
+
+                        let timeoutTask = Task.detached(priority: priority) {
+                            do {
+                                try await Task.sleep(for: timeoutDuration)
+                                operationTask.cancel()
+                                coordinator.finish(throwing: AgentError.timeout(duration: timeoutDuration))
+                            } catch is CancellationError {
+                                return
+                            } catch {
+                                coordinator.finish(throwing: error)
+                            }
+                        }
+                        coordinator.setTimeoutTask(timeoutTask)
+                    }
+                },
+                onCancel: {
+                    coordinator.cancelPending(with: CancellationError())
                 }
-                let result = try await group.next()!
-                group.cancelAll()
-                return result
-            }
+            )
         }
         return try await operation()
     }
@@ -503,26 +602,36 @@ public struct Workflow: Sendable {
         case .single(let agent):
             return try await agent.run(input, session: nil, observer: observer)
 
-        case .parallel(let agents, let merge):
+        case .parallel(let agents, let merge, _):
             let inputSnapshot = input
-            let results = try await withThrowingTaskGroup(of: AgentResult.self, returning: [AgentResult].self) { group in
-                for agent in agents {
+            let completedResults = try await withThrowingTaskGroup(
+                of: (Int, AgentResult).self,
+                returning: [(Int, AgentResult)].self
+            ) { group in
+                for (index, agent) in agents.enumerated() {
+                    let observer = observer
                     group.addTask {
-                        try await agent.run(inputSnapshot, session: nil, observer: nil)
+                        (index, try await agent.run(inputSnapshot, session: nil, observer: observer))
                     }
                 }
 
-                var collected: [AgentResult] = []
+                var collected: [(Int, AgentResult)] = []
                 for try await result in group {
                     collected.append(result)
                 }
                 return collected
             }
 
+            let results = switch merge {
+            case .first:
+                completedResults.map(\.1)
+            default:
+                completedResults.sorted { $0.0 < $1.0 }.map(\.1)
+            }
             let mergedOutput = mergeResults(results, strategy: merge)
             return AgentResult(output: mergedOutput)
 
-        case .route(let route):
+        case .route(_, let route):
             guard let selected = route(input) else {
                 throw WorkflowError.routingFailed(reason: "Workflow route did not match any agent for input")
             }
@@ -587,9 +696,9 @@ public struct Workflow: Sendable {
         let parts: [String] = steps.enumerated().map { index, step in
             switch step {
             case .single(let agent):
-                return "\(index):single:\(agent.name)"
-            case .parallel(let agents, let merge):
-                let names = agents.map(\.name).joined(separator: ",")
+                return "\(index):single:\(workflowAgentSignature(agent))"
+            case .parallel(let agents, let merge, let mergeBehaviorSignature):
+                let agentsSignature = agents.map(workflowAgentSignature).joined(separator: ",")
                 let mergeSignature: String
                 switch merge {
                 case .structured:
@@ -599,17 +708,207 @@ public struct Workflow: Sendable {
                 case .first:
                     mergeSignature = "first"
                 case .custom:
-                    mergeSignature = "custom"
+                    mergeSignature = mergeBehaviorSignature?.value ?? "custom:opaque"
                 }
-                return "\(index):parallel:\(names):\(mergeSignature)"
-            case .route:
-                return "\(index):route"
+                return "\(index):parallel:\(agentsSignature):\(mergeSignature)"
+            case .route(let signature, _):
+                return "\(index):route:\(signature.value)"
             case .fallback(let primary, let backup, let retries):
-                return "\(index):fallback:\(primary.name):\(backup.name):\(retries)"
+                return "\(index):fallback:\(workflowAgentSignature(primary)):\(workflowAgentSignature(backup)):\(retries)"
             }
         }
 
-        let repeatSignature = "repeat:\(repeatCondition != nil):\(maxRepeatIterations)"
-        return (parts + [repeatSignature]).joined(separator: "|")
+        let repeatSignature = if repeatCondition != nil {
+            "repeat:true:\(maxRepeatIterations):\(repeatConditionSignature?.value ?? "repeat:opaque")"
+        } else {
+            "repeat:false:\(maxRepeatIterations)"
+        }
+        return (["workflowSignature:v2"] + parts + [repeatSignature]).joined(separator: "|")
+    }
+}
+
+private func workflowAgentSignature(_ agent: any AgentRuntime) -> String {
+    [
+        "type=\(workflowSignatureComponent(String(reflecting: type(of: agent))))",
+        "name=\(workflowSignatureComponent(agent.name))",
+        "instructions=\(workflowSignatureComponent(agent.instructions))",
+        "configuration=\(workflowConfigurationSignature(agent.configuration))",
+        "tools=\(agent.tools.map(workflowToolSignature).joined(separator: ","))",
+        "memory=\(workflowOptionalTypeSignature(agent.memory))",
+        "provider=\(workflowInferenceProviderSignature(agent.inferenceProvider))",
+        "tracer=\(workflowOptionalTypeSignature(agent.tracer))",
+        "inputGuardrails=\(agent.inputGuardrails.map(workflowGuardrailSignature).joined(separator: ","))",
+        "outputGuardrails=\(agent.outputGuardrails.map(workflowGuardrailSignature).joined(separator: ","))",
+        "handoffs=\(agent.handoffs.map(workflowHandoffSignature).joined(separator: ","))",
+    ].joined(separator: ";")
+}
+
+private func workflowConfigurationSignature(_ configuration: AgentConfiguration) -> String {
+    let timeout = configuration.timeout.components
+    let parts = [
+        "name=\(workflowSignatureComponent(configuration.name))",
+        "maxIterations=\(configuration.maxIterations)",
+        "timeout=\(timeout.seconds):\(timeout.attoseconds)",
+        "temperature=\(configuration.temperature)",
+        "maxTokens=\(configuration.maxTokens.map(String.init) ?? "nil")",
+        "stopSequences=\(workflowSignatureComponent(String(reflecting: configuration.stopSequences)))",
+        "modelSettings=\(workflowSignatureComponent(String(reflecting: configuration.modelSettings)))",
+        "contextProfile=\(workflowSignatureComponent(String(reflecting: configuration.contextProfile)))",
+        "contextMode=\(workflowSignatureComponent(String(reflecting: configuration.contextMode)))",
+        "inferencePolicy=\(workflowSignatureComponent(String(reflecting: configuration.inferencePolicy)))",
+        "enableStreaming=\(configuration.enableStreaming)",
+        "includeToolCallDetails=\(configuration.includeToolCallDetails)",
+        "stopOnToolError=\(configuration.stopOnToolError)",
+        "includeReasoning=\(configuration.includeReasoning)",
+        "sessionHistoryLimit=\(configuration.sessionHistoryLimit.map(String.init) ?? "nil")",
+        "parallelToolCalls=\(configuration.parallelToolCalls)",
+        "previousResponseId=\(workflowSignatureComponent(configuration.previousResponseId ?? "nil"))",
+        "autoPreviousResponseId=\(configuration.autoPreviousResponseId)",
+        "defaultTracingEnabled=\(configuration.defaultTracingEnabled)",
+        "graphRunOptionsOverride=\(workflowSignatureComponent(String(reflecting: configuration.graphRunOptionsOverride)))",
+    ]
+    return parts.joined(separator: ";")
+}
+
+private func workflowToolSignature(_ tool: any AnyJSONTool) -> String {
+    [
+        "type=\(workflowSignatureComponent(String(reflecting: type(of: tool))))",
+        "name=\(workflowSignatureComponent(tool.name))",
+        "description=\(workflowSignatureComponent(tool.description))",
+        "parameters=\(workflowSignatureComponent(String(reflecting: tool.parameters)))",
+        "semantics=\(workflowSignatureComponent(String(reflecting: tool.executionSemantics)))",
+        "enabled=\(tool.isEnabled)",
+        "inputGuardrails=\(tool.inputGuardrails.map(workflowToolInputGuardrailSignature).joined(separator: ","))",
+        "outputGuardrails=\(tool.outputGuardrails.map(workflowToolOutputGuardrailSignature).joined(separator: ","))",
+    ].joined(separator: ";")
+}
+
+private func workflowHandoffSignature(_ handoff: AnyHandoffConfiguration) -> String {
+    [
+        "target=\(workflowAgentSignature(handoff.targetAgent))",
+        "toolName=\(workflowSignatureComponent(handoff.toolNameOverride ?? "nil"))",
+        "toolDescription=\(workflowSignatureComponent(handoff.toolDescription ?? "nil"))",
+        "onTransfer=\(handoff.onTransfer == nil ? "nil" : "present")",
+        "transform=\(handoff.transform == nil ? "nil" : "present")",
+        "when=\(handoff.when == nil ? "nil" : "present")",
+        "nestHistory=\(handoff.nestHandoffHistory)",
+    ].joined(separator: ";")
+}
+
+private func workflowGuardrailSignature(_ guardrail: any Guardrail) -> String {
+    [
+        "type=\(workflowSignatureComponent(String(reflecting: type(of: guardrail))))",
+        "name=\(workflowSignatureComponent(guardrail.name))",
+    ].joined(separator: ";")
+}
+
+private func workflowToolInputGuardrailSignature(_ guardrail: any ToolInputGuardrail) -> String {
+    [
+        "type=\(workflowSignatureComponent(String(reflecting: type(of: guardrail))))",
+        "name=\(workflowSignatureComponent(guardrail.name))",
+    ].joined(separator: ";")
+}
+
+private func workflowToolOutputGuardrailSignature(_ guardrail: any ToolOutputGuardrail) -> String {
+    [
+        "type=\(workflowSignatureComponent(String(reflecting: type(of: guardrail))))",
+        "name=\(workflowSignatureComponent(guardrail.name))",
+    ].joined(separator: ";")
+}
+
+private func workflowInferenceProviderSignature(_ provider: (any InferenceProvider)?) -> String {
+    guard let provider else {
+        return "nil"
+    }
+    let capabilities = InferenceProviderCapabilities.resolved(for: provider)
+    return [
+        "type=\(workflowSignatureComponent(String(reflecting: type(of: provider))))",
+        "capabilities=\(capabilities.rawValue)",
+    ].joined(separator: ";")
+}
+
+private func workflowOptionalTypeSignature(_ value: Any?) -> String {
+    guard let value else {
+        return "nil"
+    }
+    return workflowSignatureComponent(String(reflecting: type(of: value)))
+}
+
+private func workflowSignatureComponent(_ value: String) -> String {
+    "\(value.utf8.count)#\(value)"
+}
+
+private final class WorkflowTimedOperationCoordinator<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+    private var operationTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
+    private var completed = false
+
+    func install(continuation: CheckedContinuation<T, Error>) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func setOperationTask(_ task: Task<Void, Never>) {
+        lock.lock()
+        operationTask = task
+        lock.unlock()
+    }
+
+    func setTimeoutTask(_ task: Task<Void, Never>) {
+        lock.lock()
+        timeoutTask = task
+        lock.unlock()
+    }
+
+    func finish(returning value: T) {
+        complete { continuation in
+            continuation.resume(returning: value)
+        }
+    }
+
+    func finish(throwing error: Error) {
+        complete { continuation in
+            continuation.resume(throwing: error)
+        }
+    }
+
+    func cancelPending(with error: Error) {
+        let pendingState = takePendingState()
+        pendingState.operationTask?.cancel()
+        pendingState.timeoutTask?.cancel()
+        pendingState.continuation?.resume(throwing: error)
+    }
+
+    private func complete(_ resume: (CheckedContinuation<T, Error>) -> Void) {
+        let pendingState = takePendingState()
+        pendingState.operationTask?.cancel()
+        pendingState.timeoutTask?.cancel()
+        guard let continuation = pendingState.continuation else { return }
+        resume(continuation)
+    }
+
+    private func takePendingState() -> (
+        continuation: CheckedContinuation<T, Error>?,
+        operationTask: Task<Void, Never>?,
+        timeoutTask: Task<Void, Never>?
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard completed == false else {
+            return (nil, nil, nil)
+        }
+
+        completed = true
+        let pendingContinuation = continuation
+        let pendingOperationTask = operationTask
+        let pendingTimeoutTask = timeoutTask
+        continuation = nil
+        operationTask = nil
+        timeoutTask = nil
+        return (pendingContinuation, pendingOperationTask, pendingTimeoutTask)
     }
 }

@@ -1,17 +1,16 @@
 #if canImport(MLX)
 import Conduit
-import ConduitAdvanced
 import Foundation
 
-func makeMLXInferenceProvider(model: Conduit.Model) -> any InferenceProvider {
+func makeMLXInferenceProvider(model: Model) -> any InferenceProvider {
     TextOnlyConversationInferenceProviderAdapter(base: MLXPromptProvider(model: model))
 }
 
 private struct MLXPromptProvider: Sendable, InferenceProvider {
     private let conduit: Conduit
-    private let model: Conduit.Model
+    private let model: Model
 
-    init(model: Conduit.Model) {
+    init(model: Model) {
         self.conduit = Conduit(Provider.mlx())
         self.model = model
     }
@@ -32,7 +31,7 @@ private struct MLXPromptProvider: Sendable, InferenceProvider {
         }
     }
 
-    private func makeSession(options: InferenceOptions) throws -> Conduit.Session {
+    private func makeSession(options: InferenceOptions) throws -> ConduitTypes.Session {
         try conduit.session(model: model) { sessionOptions in
             sessionOptions.run { run in
                 run = Self.apply(options: options, to: run)
@@ -74,11 +73,15 @@ private struct MLXPromptProvider: Sendable, InferenceProvider {
         }
 
         if let parallelToolCalls = options.parallelToolCalls {
-            updated = updated.parallelToolCalls(parallelToolCalls)
+            updated = updated.parallelToolCalls(ParallelToolMode(parallelToolCalls))
         }
 
         if let structuredOutput = options.structuredOutput {
             updated = updated.responseFormat(try conduitResponseFormat(from: structuredOutput.format))
+        }
+
+        if let reasoning = options.reasoning {
+            updated = updated.reasoning(conduitReasoning(from: reasoning))
         }
 
         if let providerSettings = options.providerSettings, !providerSettings.isEmpty {
@@ -86,6 +89,15 @@ private struct MLXPromptProvider: Sendable, InferenceProvider {
         }
 
         return updated
+    }
+
+    private static func conduitReasoning(from reasoning: ReasoningConfig) -> ConduitTypes.ReasoningConfig {
+        ConduitTypes.ReasoningConfig(
+            effort: reasoning.effort.flatMap { ConduitTypes.ReasoningEffort(rawValue: $0.rawValue) },
+            maxTokens: reasoning.maxTokens,
+            exclude: reasoning.exclude,
+            enabled: reasoning.enabled
+        )
     }
 
     private static func applyProviderRuntimeSettings(

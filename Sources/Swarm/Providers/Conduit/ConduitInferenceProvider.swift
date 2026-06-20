@@ -1,5 +1,5 @@
-import ConduitAdvanced
-private typealias ConduitToolChoice = ConduitAdvanced.ToolChoice
+import Conduit
+private typealias ConduitToolChoice = ConduitTypes.ToolChoice
 import Foundation
 
 /// Bridges a Conduit TextGenerator into Swarm' InferenceProvider.
@@ -491,11 +491,15 @@ struct ConduitInferenceProvider<Provider: TextGenerator>: InferenceProvider,
         }
 
         if let parallelToolCalls = options.parallelToolCalls {
-            updated = updated.parallelToolCalls(parallelToolCalls)
+            updated = updated.parallelToolCalls(ParallelToolMode(parallelToolCalls))
         }
 
         if let structuredOutput = options.structuredOutput {
             updated = updated.responseFormat(try Self.conduitResponseFormat(from: structuredOutput.format))
+        }
+
+        if let reasoning = options.reasoning {
+            updated = updated.reasoning(Self.conduitReasoning(from: reasoning))
         }
 
         if let providerSettings = options.providerSettings, !providerSettings.isEmpty {
@@ -503,6 +507,19 @@ struct ConduitInferenceProvider<Provider: TextGenerator>: InferenceProvider,
         }
 
         return updated
+    }
+
+    /// Translates Swarm's `ReasoningConfig` to Conduit's matching type.
+    ///
+    /// Swarm keeps its own mirror so consumers don't import Conduit directly;
+    /// the translation lives here at the provider boundary.
+    private static func conduitReasoning(from reasoning: ReasoningConfig) -> ConduitTypes.ReasoningConfig {
+        ConduitTypes.ReasoningConfig(
+            effort: reasoning.effort.flatMap { ConduitTypes.ReasoningEffort(rawValue: $0.rawValue) },
+            maxTokens: reasoning.maxTokens,
+            exclude: reasoning.exclude,
+            enabled: reasoning.enabled
+        )
     }
 
     private func applyProviderRuntimeSettings(
@@ -781,10 +798,10 @@ enum ConduitToolCallConverter {
     }
 }
 
-extension ConduitInferenceProvider: PromptTokenCounter where Provider: ConduitAdvanced.TokenCounter {
+extension ConduitInferenceProvider: PromptTokenCounter where Provider: ConduitTypes.TokenCounter {
     func countTokens(in text: String) async throws -> Int {
         try await provider.countTokens(in: text, for: model).count
     }
 }
 
-extension ConduitInferenceProvider: PromptTokenCountingInferenceProvider where Provider: ConduitAdvanced.TokenCounter {}
+extension ConduitInferenceProvider: PromptTokenCountingInferenceProvider where Provider: ConduitTypes.TokenCounter {}

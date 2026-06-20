@@ -94,7 +94,7 @@ Please check the relevant option(s):
 - [ ] I have performed a self-review of my own code
 - [ ] I have run `swift build` and ensured no compilation errors
 - [ ] I have run `swift test` and all tests pass
-- [ ] I have run SwiftFormat: `swift package plugin --allow-writing-to-package-directory swiftformat`
+- [ ] I have run SwiftFormat: `swiftformat Sources Tests --lint --config .swiftformat`
 - [ ] I have run SwiftLint and fixed any warnings: `swiftlint lint`
 
 ### Concurrency & Safety
@@ -116,7 +116,7 @@ Please check the relevant option(s):
 - [ ] Mock protocols are used for external dependencies
 
 ### Version Compatibility
-- [ ] My code supports the minimum requirements: iOS 17+, macOS 14+, Swift 6.2
+- [ ] My code supports the minimum requirements: iOS 26+, macOS 26+, tvOS 26+, Swift 6.2
 - [ ] I have not introduced dependencies that break compatibility
 
 ---

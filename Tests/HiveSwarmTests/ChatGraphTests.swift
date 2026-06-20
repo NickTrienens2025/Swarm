@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import HiveCore
-@testable import Swarm
+@_spi(ColonyInternal) @testable import Swarm
 import Testing
 
 // MARK: - HiveAgentsTests
@@ -32,6 +32,24 @@ struct HiveAgentsTests {
             if case .none = message.op { return true }
             return false
         })
+    }
+
+    @Test("Messages reducer preserves reasoning content")
+    func messagesReducer_preservesReasoningContent() throws {
+        let update = [
+            HiveChatMessage(
+                id: "reasoning-message",
+                role: .assistant,
+                content: "Final answer",
+                reasoningContent: "Private chain summary"
+            )
+        ]
+
+        let reduced = try ChatGraph.MessagesReducer.reduce(current: [], update: update)
+
+        #expect(reduced.count == 1)
+        #expect(reduced[0].content == "Final answer")
+        #expect(reduced[0].reasoningContent == "Private chain summary")
     }
 
     @Test("Compaction: llmInputMessages derived, messages preserved (runtime-driven)")
@@ -166,8 +184,8 @@ struct HiveAgentsTests {
             _ = try await handle.outcome.value
         }
 
-        guard let runtimeError = thrown as? HiveRuntimeError else {
-            Issue.record("Expected HiveRuntimeError, got \(String(describing: thrown))")
+        guard let runtimeError = thrown as? SwarmRuntimeError else {
+            Issue.record("Expected SwarmRuntimeError, got \(String(describing: thrown))")
             return
         }
         switch runtimeError {
@@ -1010,6 +1028,46 @@ struct HiveAgentsTests {
         #expect(result.toolResults.first?.callId == result.toolCalls.first?.id)
     }
 
+    @Test("GraphAgent maps provider tool-call IDs deterministically")
+    func hiveBackedAgent_mapsToolCallIDsDeterministically() async throws {
+        func makeAgent(threadID: String) throws -> GraphAgent {
+            let graph = try ChatGraph.makeToolUsingChatAgent()
+            let context = RuntimeContext(modelName: "test-model", toolApprovalPolicy: .never)
+            let environment = HiveEnvironment<ChatGraph.Schema>(
+                context: context,
+                clock: NoopClock(),
+                logger: NoopLogger(),
+                model: AnyHiveModelClient(ScriptedModelClient(script: ModelScript(chunksByInvocation: [
+                    [.final(HiveChatResponse(message: message(
+                        id: "m1",
+                        role: .assistant,
+                        content: "",
+                        toolCalls: [HiveToolCall(id: "stable-provider-call", name: "calc", argumentsJSON: "{}")]
+                    )))],
+                    [.final(HiveChatResponse(message: message(id: "m2", role: .assistant, content: "done")))]
+                ]))),
+                modelRouter: nil,
+                tools: AnyHiveToolRegistry(StubToolRegistry(resultContent: "42")),
+                checkpointStore: nil
+            )
+
+            let runtime = try HiveRuntime(graph: graph, environment: environment)
+            let hiveRuntime = GraphRuntimeAdapter(runControl: GraphRunController(runtime: runtime))
+            return GraphAgent(
+                runtime: hiveRuntime,
+                name: "deterministic-bridge",
+                threadID: HiveThreadID(threadID)
+            )
+        }
+
+        let first = try await makeAgent(threadID: "deterministic-1").run("hello")
+        let second = try await makeAgent(threadID: "deterministic-2").run("hello")
+
+        #expect(first.toolCalls.first?.providerCallId == "stable-provider-call")
+        #expect(second.toolCalls.first?.providerCallId == "stable-provider-call")
+        #expect(first.toolCalls.first?.id == second.toolCalls.first?.id)
+    }
+
     @Test("Deterministic message IDs: model taskID drives assistant message id")
     func deterministicMessageID_fromModelTaskID() async throws {
         let graph = try ChatGraph.makeToolUsingChatAgent()
@@ -1244,7 +1302,7 @@ private struct ScriptedModelClient: HiveModelClient {
         for chunk in chunks {
             if case let .final(response) = chunk { return response }
         }
-        throw HiveRuntimeError.modelStreamInvalid("Missing final chunk.")
+        throw SwarmRuntimeError.modelStreamInvalid("Missing final chunk.")
     }
 
     func stream(_: HiveChatRequest) -> AsyncThrowingStream<HiveChatStreamChunk, Error> {
@@ -1303,7 +1361,7 @@ private struct CapturingModelClient: HiveModelClient {
                 return response
             }
         }
-        throw HiveRuntimeError.modelStreamInvalid("Missing final chunk.")
+        throw SwarmRuntimeError.modelStreamInvalid("Missing final chunk.")
     }
 
     func stream(_ request: HiveChatRequest) -> AsyncThrowingStream<HiveChatStreamChunk, Error> {

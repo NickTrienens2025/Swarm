@@ -1,5 +1,4 @@
 import Conduit
-import ConduitAdvanced
 import Foundation
 
 /// Opinionated, beginner-friendly inference presets backed by Conduit.
@@ -248,7 +247,7 @@ public struct LLM: Sendable, InferenceProvider {
             return ConduitInferenceProvider(provider: provider, model: modelID)
 #if canImport(MLX)
         case let .mlx(config):
-            let model: Conduit.Model = switch config {
+            let model: Model = switch config {
             case let .mlx(model):
                 .mlx(model)
             case let .mlxLocal(path):
@@ -276,6 +275,19 @@ public struct LLM: Sendable, InferenceProvider {
             port: settings.port,
             ollamaConfig: settings.toConduit()
         )
+    }
+
+    private var usesPrivateInference: Bool {
+        switch kind {
+        case .ollama:
+            true
+#if canImport(MLX)
+        case .mlx:
+            true
+#endif
+        default:
+            false
+        }
     }
 }
 
@@ -371,6 +383,9 @@ extension LLM: CapabilityReportingInferenceProvider {
     public var capabilities: InferenceProviderCapabilities {
         var capabilities = InferenceProviderCapabilities.resolved(for: makeProvider())
         capabilities.insert(.conversationMessages)
+        if usesPrivateInference {
+            capabilities.insert(.privateInference)
+        }
         return capabilities
     }
 }

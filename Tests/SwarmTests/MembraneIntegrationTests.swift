@@ -1,6 +1,8 @@
 import Foundation
+import MembraneCore
 @testable import Swarm
 import Testing
+import Wax
 
 @Suite("Membrane Integration")
 struct MembraneIntegrationTests {
@@ -126,6 +128,119 @@ struct MembraneIntegrationTests {
         #expect(result.metadata["membrane.fallback.error"]?.stringValue?.contains("forced membrane failure") == true)
     }
 
+    @Test("Pointerized structured tool output resolves as JSON")
+    func pointerizedStructuredToolOutputResolvesAsJSON() async throws {
+        let provider = PointerResolvingInferenceProvider()
+        let agent = try Agent(
+            tools: [StructuredPayloadTool()],
+            instructions: "Call the structured payload tool, resolve the pointer, then finish.",
+            configuration: AgentConfiguration(
+                name: "membrane-structured-tool-output",
+                maxIterations: 4,
+                defaultTracingEnabled: false
+            ),
+            inferenceProvider: provider
+        ).environment(
+            \.membrane,
+            MembraneEnvironment(
+                isEnabled: true,
+                configuration: MembraneFeatureConfiguration(
+                    jitMinToolCount: 12,
+                    defaultJITLoadCount: 2,
+                    pointerThresholdBytes: 32,
+                    pointerSummaryMaxChars: 80
+                )
+            )
+        )
+
+        let result = try await agent.run("exercise pointerized structured output")
+
+        let resolvedPointerOutput = try #require(result.toolResults.last?.output.stringValue)
+        let data = Data(resolvedPointerOutput.utf8)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let dictionary = try #require(object)
+        #expect(dictionary["message"] as? String == "quoted \"value\" with newline\nsecond line")
+        #expect(dictionary["count"] as? Int == 42)
+    }
+
+    // MARK: - one-8h1.10 characterization (OneWorkspace investigation)
+    //
+    // Manual gate transcript 2026-05-08T05:13Z saw `Tool 'Add_Tools' failed:
+    // ... (Swarm.MembraneAgentAdapterError error 1.)`. These tests prove
+    // what `error 1` actually means and how it's triggered, so callers
+    // (and forks consuming this adapter) can map the error correctly
+    // without a magic-number lookup.
+
+    @Test("Add_Tools called with missing tool_names argument throws invalidInternalToolArguments (`error 1`)")
+    func addToolsMissingArgsThrowsErrorCase1() async throws {
+        let adapter = DefaultMembraneAgentAdapter(
+            configuration: MembraneFeatureConfiguration(jitMinToolCount: 2, defaultJITLoadCount: 1)
+        )
+        await #expect(throws: MembraneAgentAdapterError.self) {
+            _ = try await adapter.handleInternalToolCall(
+                name: MembraneInternalToolName.addTools,
+                arguments: [:]  // No tool_names key at all.
+            )
+        }
+        // Empty array: same outcome (parseToolNames returns []).
+        await #expect(throws: MembraneAgentAdapterError.self) {
+            _ = try await adapter.handleInternalToolCall(
+                name: MembraneInternalToolName.addTools,
+                arguments: ["tool_names": .array([])]
+            )
+        }
+    }
+
+    @Test("membrane_load_tool_schema with missing or empty tool_name throws invalidInternalToolArguments")
+    func loadToolSchemaMissingArgThrowsErrorCase1() async throws {
+        let adapter = DefaultMembraneAgentAdapter(
+            configuration: MembraneFeatureConfiguration(jitMinToolCount: 2, defaultJITLoadCount: 1)
+        )
+        await #expect(throws: MembraneAgentAdapterError.self) {
+            _ = try await adapter.handleInternalToolCall(
+                name: MembraneInternalToolName.loadToolSchema,
+                arguments: [:]
+            )
+        }
+        await #expect(throws: MembraneAgentAdapterError.self) {
+            _ = try await adapter.handleInternalToolCall(
+                name: MembraneInternalToolName.loadToolSchema,
+                arguments: ["tool_name": .string("")]
+            )
+        }
+    }
+
+    @Test("MembraneAgentAdapterError.invalidInternalToolArguments is the second case (NSError code 1)")
+    func errorCaseOrdinalIsOne() {
+        // Swift bridges enum-with-payload to NSError using the case
+        // declaration order. unsupportedInternalTool is case 0,
+        // invalidInternalToolArguments is case 1. The 'error 1' string
+        // in production transcripts maps to invalidInternalToolArguments.
+        let error = MembraneAgentAdapterError.invalidInternalToolArguments(
+            name: "Add_Tools",
+            reason: "Missing required array argument: tool_names"
+        )
+        let nsError = error as NSError
+        #expect(nsError.code == 1)
+        // unsupportedInternalTool is the other case at code 0.
+        let other = MembraneAgentAdapterError.unsupportedInternalTool(name: "x")
+        let otherNS = other as NSError
+        #expect(otherNS.code == 0)
+    }
+
+    @Test("Add_Tools with valid tool_names succeeds and returns confirmation message")
+    func addToolsValidArgsSucceeds() async throws {
+        let adapter = DefaultMembraneAgentAdapter(
+            configuration: MembraneFeatureConfiguration(jitMinToolCount: 2, defaultJITLoadCount: 1)
+        )
+        let result = try await adapter.handleInternalToolCall(
+            name: MembraneInternalToolName.addTools,
+            arguments: ["tool_names": .array([.string("listDatabases"), .string("getSchemaModel")])]
+        )
+        #expect(result?.contains("listDatabases") == true)
+        #expect(result?.contains("getSchemaModel") == true)
+    }
+
     @Test("Default adapter checkpoint state roundtrips loaded tools")
     func defaultAdapterCheckpointRoundtrip() async throws {
         let adapter = DefaultMembraneAgentAdapter(
@@ -194,6 +309,102 @@ struct MembraneIntegrationTests {
         #expect(names.contains("beta"))
         #expect(names.contains("gamma"))
     }
+
+    @Test("strict4k planning enters JIT at the lowered four-tool threshold")
+    func strict4kPlanningUsesLoweredJITThreshold() async throws {
+        let adapter = DefaultMembraneAgentAdapter(
+            configuration: MembraneFeatureConfiguration(jitMinToolCount: 12, defaultJITLoadCount: 2)
+        )
+        let toolSchemas = [
+            ToolSchema(name: "alpha", description: "alpha", parameters: []),
+            ToolSchema(name: "beta", description: "beta", parameters: []),
+            ToolSchema(name: "gamma", description: "gamma", parameters: []),
+            ToolSchema(name: "delta", description: "delta", parameters: []),
+        ]
+
+        let planned = try await adapter.plan(
+            prompt: "hello",
+            toolSchemas: toolSchemas,
+            profile: .strict4k
+        )
+
+        let names = Set(planned.toolSchemas.map(\.name))
+        #expect(planned.mode == "jit")
+        #expect(names.contains("alpha"))
+        #expect(names.contains("beta"))
+        #expect(names.contains("gamma") == false)
+        #expect(names.contains("delta") == false)
+        #expect(names.contains(MembraneInternalToolName.loadToolSchema))
+        #expect(names.contains(MembraneInternalToolName.addTools))
+        #expect(names.contains(MembraneInternalToolName.removeTools))
+        #expect(names.contains(MembraneInternalToolName.resolvePointer))
+    }
+
+    @Test("Wax membrane pointer recall does not index private payload bytes")
+    func waxMembranePointerRecallDoesNotIndexPrivatePayloadBytes() async throws {
+        let storage = WaxMembraneStorage(url: temporaryWaxStoreURL())
+        let secret = "SWARM-AUDIT-040-private-payload-\(UUID().uuidString)"
+        _ = try await storage.store(
+            payload: Data(secret.utf8),
+            dataType: .document,
+            summary: "Public pointer summary only"
+        )
+
+        let secretMatches = try await storage.recall(query: secret, limit: 5)
+        #expect(secretMatches.allSatisfy { !$0.content.contains(secret) })
+
+        let summaryMatches = try await storage.recall(query: "Public pointer summary", limit: 5)
+        #expect(summaryMatches.contains { $0.content.contains("Public pointer summary") })
+        #expect(summaryMatches.allSatisfy { !$0.content.contains(secret) })
+        #expect(summaryMatches.allSatisfy { !$0.content.contains("__payload_base64__") })
+        #expect(summaryMatches.allSatisfy { !$0.content.contains(Data(secret.utf8).base64EncodedString()) })
+    }
+
+    @Test("Wax membrane pointer delete removes persisted payload")
+    func waxMembranePointerDeleteRemovesPersistedPayload() async throws {
+        let url = temporaryWaxStoreURL()
+        let storage = WaxMembraneStorage(url: url)
+        let payload = Data("SWARM-AUDIT-041-persisted-delete".utf8)
+        let pointer = try await storage.store(
+            payload: payload,
+            dataType: .document,
+            summary: "Delete me"
+        )
+        #expect(try await storage.resolve(pointerID: pointer.id) == payload)
+
+        await storage.delete(pointerID: pointer.id)
+
+        await #expect(throws: MembraneError.self) {
+            _ = try await storage.resolve(pointerID: pointer.id)
+        }
+
+        let matches = try await storage.recall(query: "Delete me", limit: 5)
+        #expect(matches.allSatisfy { $0.provenance.metadata["membrane.pointer.id"] != pointer.id })
+    }
+
+    @Test("Wax membrane pointer store rolls back payload frame when indexing fails")
+    func waxMembranePointerStoreRollsBackPayloadFrameWhenIndexingFails() async throws {
+        let url = temporaryWaxStoreURL()
+        let failingIndex = FailingWaxPointerIndex()
+        let storage = WaxMembraneStorage(url: url) { _ in failingIndex }
+
+        await #expect(throws: FailingWaxPointerIndex.Failure.self) {
+            _ = try await storage.store(
+                payload: Data("SWARM-AUDIT-042-rollback-payload".utf8),
+                dataType: .document,
+                summary: "Must roll back"
+            )
+        }
+
+        let frameStore = try await Wax.FrameStore.open(at: url)
+        let activePayloadFrames = await frameStore.frames().filter {
+            $0.status == .active &&
+                $0.metadata["membrane.kind"] == "membrane.pointer.payloadFrame"
+        }
+        await frameStore.close()
+
+        #expect(activePayloadFrames.isEmpty)
+    }
 }
 
 private func defaultAdapterToolSchemas() -> [ToolSchema] {
@@ -258,6 +469,13 @@ private func makeTestTools(count: Int) -> [any AnyJSONTool] {
     }
 }
 
+private func temporaryWaxStoreURL() -> URL {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("SwarmMembraneIntegrationTests", isDirectory: true)
+    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    return root.appendingPathComponent("\(UUID().uuidString).mv2s")
+}
+
 private struct MembraneTestTool: AnyJSONTool, Sendable {
     let name: String
     let description: String
@@ -273,6 +491,117 @@ private struct MembraneTestTool: AnyJSONTool, Sendable {
 
     func execute(arguments _: [String: SendableValue]) async throws -> SendableValue {
         .string("ok")
+    }
+}
+
+private struct StructuredPayloadTool: AnyJSONTool, Sendable {
+    let name = "structured_payload"
+    let description = "Returns structured JSON-compatible data large enough to pointerize."
+    let parameters: [ToolParameter] = []
+
+    func execute(arguments _: [String: SendableValue]) async throws -> SendableValue {
+        .dictionary([
+            "message": .string("quoted \"value\" with newline\nsecond line"),
+            "count": .int(42),
+            "items": .array((0 ..< 20).map { .string("item-\($0)") })
+        ])
+    }
+}
+
+private actor FailingWaxPointerIndex: WaxPointerIndex {
+    struct Failure: Error {}
+
+    func save(_: String, metadata _: [String: String]) async throws {
+        throw Failure()
+    }
+
+    func flush() async throws {}
+
+    func search(_ query: String, options _: Wax.Memory.SearchOptions) async throws -> Wax.Memory.Results {
+        Wax.Memory.Results(query: query, items: [], totalTokens: 0)
+    }
+
+    func close() async throws {}
+}
+
+private actor PointerResolvingInferenceProvider: InferenceProvider, ConversationInferenceProvider {
+    private var turn = 0
+
+    func generate(prompt _: String, options _: InferenceOptions) async throws -> String {
+        "done"
+    }
+
+    nonisolated func stream(prompt _: String, options _: InferenceOptions) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield("done")
+            continuation.finish()
+        }
+    }
+
+    func generateWithToolCalls(
+        prompt _: String,
+        tools _: [ToolSchema],
+        options _: InferenceOptions
+    ) async throws -> InferenceResponse {
+        try nextResponse(from: "")
+    }
+
+    func generate(messages: [InferenceMessage], options _: InferenceOptions) async throws -> String {
+        InferenceMessage.flattenPrompt(messages)
+    }
+
+    nonisolated func stream(
+        messages: [InferenceMessage],
+        options _: InferenceOptions
+    ) -> AsyncThrowingStream<String, Error> {
+        let text = InferenceMessage.flattenPrompt(messages)
+        return AsyncThrowingStream { continuation in
+            continuation.yield(text)
+            continuation.finish()
+        }
+    }
+
+    func generateWithToolCalls(
+        messages: [InferenceMessage],
+        tools _: [ToolSchema],
+        options _: InferenceOptions
+    ) async throws -> InferenceResponse {
+        try nextResponse(from: InferenceMessage.flattenPrompt(messages))
+    }
+
+    private func nextResponse(from prompt: String) throws -> InferenceResponse {
+        defer { turn += 1 }
+        switch turn {
+        case 0:
+            return InferenceResponse(
+                toolCalls: [
+                    .init(id: "call-structured", name: "structured_payload", arguments: [:])
+                ],
+                finishReason: .toolCall
+            )
+        case 1:
+            let pointerID = try Self.pointerID(from: prompt)
+            return InferenceResponse(
+                toolCalls: [
+                    .init(
+                        id: "call-resolve",
+                        name: MembraneInternalToolName.resolvePointer,
+                        arguments: ["pointer_id": .string(pointerID)]
+                    )
+                ],
+                finishReason: .toolCall
+            )
+        default:
+            return InferenceResponse(content: "done", finishReason: .completed)
+        }
+    }
+
+    private static func pointerID(from prompt: String) throws -> String {
+        guard let range = prompt.range(of: #"ptr_[0-9a-f]{12}"#, options: .regularExpression) else {
+            struct MissingPointer: Error {}
+            throw MissingPointer()
+        }
+        return String(prompt[range])
     }
 }
 
